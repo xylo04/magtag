@@ -116,8 +116,12 @@ def fetch_passes(magtag, norad_id, label):
         print(f"  fetch error for {label}: {e}")
         return []
 
+    raw = data.get("passes", [])
+    if raw is None:
+        raw = []
+    print(f"  {label}: {len(raw)} passes | info={data.get('info', {})}")
     passes = []
-    for p in data.get("passes", []):
+    for p in raw:
         passes.append({
             "label":  label,
             "aos":    p["startUTC"],   # Unix timestamp
@@ -145,9 +149,15 @@ def format_duration(start_ts, end_ts):
 def build_display_lines(all_passes, utc_offset_s):
     """Sort passes by AOS, take the next MAX_PASSES_SHOWN, return display strings."""
     cur = now_unix()
+    print(f"Build display: total={len(all_passes)}, now_unix={cur}")
+    if all_passes:
+        earliest = min(p["aos"] for p in all_passes)
+        latest   = max(p["aos"] for p in all_passes)
+        print(f"  AOS range: {earliest} to {latest} (now={cur}, delta_first={earliest-cur}s)")
     upcoming = [p for p in all_passes if p["aos"] > cur]
     upcoming.sort(key=lambda p: p["aos"])
     upcoming = upcoming[:MAX_PASSES_SHOWN]
+    print(f"  Upcoming (future): {len(upcoming)}")
 
     lines = []
     for p in upcoming:
@@ -217,11 +227,15 @@ def main():
 
     lines = build_display_lines(all_passes, utc_offset_s)
 
+    print(f"Rendering {len(lines)} rows + status, then refreshing display...")
     for i, line in enumerate(lines):
+        print(f"  row {i}: {repr(line)}")
         magtag.set_text(line, index=2 + i, auto_refresh=False)
 
     now_str = unix_to_hhmm(now_unix(), utc_offset_s)
-    magtag.set_text(f"Updated {now_str} local", index=2 + MAX_PASSES_SHOWN)
+    status = f"Updated {now_str} local"
+    print(f"  status: {repr(status)}")
+    magtag.set_text(status, index=2 + MAX_PASSES_SHOWN, auto_refresh=True)
 
     print(f"Sleeping for {REFRESH_INTERVAL_S}s...")
     magtag.exit_and_deep_sleep(REFRESH_INTERVAL_S)
