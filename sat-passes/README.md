@@ -23,14 +23,10 @@ Updated 14:05 local
 
 ## Setup
 
-### 1. Get API keys
+### 1. Get an N2YO API key
 
-**N2YO** — register for free at <https://www.n2yo.com/api/>. Free tier: 1,000
-transactions/hour.
-
-**Adafruit IO** — free account at <https://io.adafruit.com/>. Used only for RTC
-time sync on boot; no feeds or data storage needed. Your AIO key is under
-*My Key* in the IO dashboard.
+Register for free at <https://www.n2yo.com/api/>. Free tier: 1,000 transactions/hour.
+No other API keys are needed.
 
 ### 2. Install CircuitPython libraries
 
@@ -48,7 +44,7 @@ the MagTag bundle or grab it from the Adafruit learn guide assets).
 
 ```bash
 cp secrets.py.example secrets.py
-# Edit secrets.py with your Wi-Fi credentials, API keys, and coordinates
+# Edit secrets.py with your Wi-Fi credentials, API key, and coordinates
 ```
 
 Required fields in `secrets.py`:
@@ -57,10 +53,12 @@ Required fields in `secrets.py`:
 |-----|-------------|
 | `ssid` / `password` | Wi-Fi credentials |
 | `n2yo_api_key` | N2YO API key |
-| `aio_username` | Adafruit IO username |
-| `aio_key` | Adafruit IO key (time sync only) |
+| `timezone` | IANA timezone name (e.g. `"America/Denver"`) |
 | `latitude` / `longitude` / `altitude_km` | Observer location |
-| `timezone_offset` | Hours from UTC (`-6` MDT, `-7` MST) |
+
+Time is synced from [WorldTimeAPI](https://worldtimeapi.org/) on every boot using
+the IANA timezone name. DST transitions are handled automatically — no manual
+offset config needed, ever.
 
 ### 4. Deploy to MagTag
 
