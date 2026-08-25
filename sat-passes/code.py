@@ -116,10 +116,11 @@ def fetch_passes(magtag, norad_id, label):
         print(f"  fetch error for {label}: {e}")
         return []
 
-    raw = data.get("passes", [])
-    if raw is None:
-        raw = []
-    print(f"  {label}: {len(raw)} passes | info={data.get('info', {})}")
+    if "error" in data:
+        print(f"  {label}: API error: {data['error']}")
+        return []
+    raw = data.get("passes") or []
+    print(f"  {label}: {len(raw)} passes")
     passes = []
     for p in raw:
         passes.append({
