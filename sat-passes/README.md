@@ -26,7 +26,7 @@ Updated 14:05 local
 ### 1. Get API keys
 
 **N2YO** — register for free at <https://www.n2yo.com/api/>. Free tier:
-1,000 transactions/hour. Note: during development, each device reset burns
+100 radio pass lookups/hour. Note: during development, each device reset burns
 6 transactions (one per satellite), so the limit is easy to hit while iterating.
 
 **Adafruit IO** — free account at <https://io.adafruit.com/>. Used for DST-aware
