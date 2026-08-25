@@ -56,18 +56,36 @@ def sync_time(magtag):
         reply = magtag.network.get_local_time(location=secrets["timezone"])
         # e.g. "2026-08-25 10:51:00.000 237 2 -0600 MDT"
         fields = reply.split(" ")
-        tz_str = fields[4]   # e.g. "-0600"
+
+        # Parse DST-aware UTC offset from %z field (e.g. "-0600")
+        tz_str = fields[4]
         sign = -1 if tz_str[0] == "-" else 1
         _utc_offset = sign * (int(tz_str[1:3]) * 3600 + int(tz_str[3:5]) * 60)
 
-        # RTC is now set to local time by get_local_time().
-        # time.time() = CP epoch seconds (since 2000-01-01) for local time.
-        # UTC Unix = local_cp_secs - utc_offset + 946684800
-        _boot_unix = int(time.time()) - _utc_offset + 946684800
+        # Parse local datetime components
+        y, mo, d = (int(x) for x in fields[0].split("-"))
+        h, mi, s = (int(x) for x in fields[1].split(".")[0].split(":"))
+
+        # Convert local time-of-day to UTC seconds, handling midnight rollover
+        utc_tod = h * 3600 + mi * 60 + s - _utc_offset
+        day_adj = 0
+        if utc_tod >= 86400:
+            utc_tod -= 86400; day_adj = 1
+        elif utc_tod < 0:
+            utc_tod += 86400; day_adj = -1
+
+        # Days since Unix epoch via Julian Day Number (Gregorian calendar)
+        # Avoids time.time() entirely — no CircuitPython epoch ambiguity.
+        a = (14 - mo) // 12
+        yy = y + 4800 - a
+        m = mo + 12 * a - 3
+        jdn = (d + day_adj + (153 * m + 2) // 5
+               + 365 * yy + yy // 4 - yy // 100 + yy // 400 - 32045)
+        _boot_unix = (jdn - 2440588) * 86400 + utc_tod
         _boot_mono = time.monotonic()
 
         tz_abbr = fields[5] if len(fields) > 5 else tz_str
-        print(f"  Synced: {tz_abbr} (UTC{_utc_offset // 3600:+d})")
+        print(f"  Synced: {tz_abbr} (UTC{_utc_offset // 3600:+d}), unix={_boot_unix}")
     except Exception as e:
         print(f"  Time sync failed: {e}")
     return _utc_offset
