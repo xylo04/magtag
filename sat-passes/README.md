@@ -30,15 +30,22 @@ No other API keys are needed.
 
 ### 2. Install CircuitPython libraries
 
-Copy to `CIRCUITPY/lib/` from the
-[Adafruit CircuitPython bundle](https://github.com/adafruit/Adafruit_CircuitPython_Bundle):
+Use [circup](https://github.com/adafruit/circup), Adafruit's library manager,
+to install all dependencies automatically:
 
-- `adafruit_magtag/`
-- `adafruit_requests.mpy`
-- `adafruit_connection_manager.mpy`
+```bash
+pip install circup
+# plug in the MagTag via USB, then:
+circup install -r requirements.txt
+```
 
-You'll also need the `Arial-Bold-12.bdf` font in `CIRCUITPY/fonts/` (included in
-the MagTag bundle or grab it from the Adafruit learn guide assets).
+`adafruit_magtag` has a deep dependency tree (portalbase, display_text,
+bitmap_font, lis3dh, neopixel, requests, connection_manager, …). circup resolves
+all of it from the bundle so you don't have to track it manually.
+
+You'll also need the `Arial-Bold-12.bdf` font in `CIRCUITPY/fonts/` — grab it
+from the [Adafruit CircuitPython Bundle](https://github.com/adafruit/Adafruit_CircuitPython_Bundle)
+or the MagTag learn guide assets.
 
 ### 3. Configure
 

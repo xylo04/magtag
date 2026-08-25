@@ -1,0 +1,8 @@
+# CircuitPython library dependencies for sat-passes
+# Install with: circup install -r requirements.txt
+#
+# adafruit_magtag pulls in the full MagTag stack:
+#   adafruit_portalbase, adafruit_display_text, adafruit_bitmap_font,
+#   adafruit_lis3dh (accelerometer), neopixel, adafruit_requests,
+#   adafruit_connection_manager, and more.
+adafruit_magtag
