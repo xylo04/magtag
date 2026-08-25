@@ -102,7 +102,7 @@ def n2yo_url(norad_id):
         f"{N2YO_BASE}/radiopasses/{norad_id}"
         f"/{lat}/{lon}/{alt}"
         f"/{DAYS_AHEAD}/{MIN_ELEVATION_DEG}"
-        f"/&apiKey=***}"
+        "/&apiKey=" + key
     )
 
 
