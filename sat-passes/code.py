@@ -28,6 +28,9 @@ MAX_PASSES_SHOWN  = 4           # number of pass rows on display
 
 N2YO_BASE = "https://api.n2yo.com/rest/v1/satellite"
 
+BATTERY_EMPTY_V = 3.20          # approximate 0% for a single-cell LiPo
+BATTERY_FULL_V  = 4.20          # approximate 100% for a single-cell LiPo
+
 # ── Time tracking (set by sync_time) ─────────────────────────────────────────
 
 _boot_unix  = 0     # Unix timestamp captured at last sync
@@ -178,6 +181,29 @@ def format_duration(start_ts, end_ts):
     return f"{dur // 60}m{dur % 60:02d}s"
 
 
+def battery_percent(magtag):
+    """Return an approximate battery percentage, or None if unavailable."""
+    try:
+        battery_v = magtag.peripherals.battery
+    except Exception as e:
+        print(f"  battery read failed: {e}")
+        return None
+
+    if battery_v is None:
+        return None
+
+    pct = int(
+        ((battery_v - BATTERY_EMPTY_V) / (BATTERY_FULL_V - BATTERY_EMPTY_V)) * 100
+        + 0.5
+    )
+    if pct < 0:
+        pct = 0
+    elif pct > 100:
+        pct = 100
+    print(f"  battery: {battery_v:.2f}V ({pct}%)")
+    return pct
+
+
 def build_display_lines(all_passes, utc_offset_s):
     """Sort passes by AOS, take the next MAX_PASSES_SHOWN, return display strings."""
     cur = now_unix()
@@ -275,9 +301,11 @@ def main():
 
     now_str  = unix_to_hhmm(now_unix(), utc_offset_s)
     date_str = unix_to_date(now_unix(), utc_offset_s)
-    status = f"Updated {now_str} local, {date_str}"
+    batt_pct = battery_percent(magtag)
+    batt_str = f", batt {batt_pct}%" if batt_pct is not None else ""
+    status = f"Updated {now_str} local, {date_str}{batt_str}"
     if rate_limited:
-        status = f"N2YO rate limited, {date_str}"
+        status = f"N2YO rate limited, {date_str}{batt_str}"
     print(f"  status: {repr(status)}")
     magtag.set_text(status, index=2 + MAX_PASSES_SHOWN, auto_refresh=True)
 
