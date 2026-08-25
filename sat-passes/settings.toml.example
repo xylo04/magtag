@@ -1,0 +1,29 @@
+# settings.toml.example — copy to settings.toml and fill in your values.
+# settings.toml is the CircuitPython 8+ standard for device configuration.
+# Values are read in code via os.getenv("KEY").
+
+# ── Wi-Fi ─────────────────────────────────────────────────────────────────────
+# These are the standard CircuitPython Wi-Fi keys; the MagTag reads them
+# automatically — you don't reference them in code.py.
+CIRCUITPY_WIFI_SSID = "YOUR_SSID"
+CIRCUITPY_WIFI_PASSWORD = "YOUR_PASSWORD"
+
+# ── Adafruit IO (time sync) ────────────────────────────────────────────────────
+# Free account at https://io.adafruit.com — key is under "My Key" in the dashboard.
+# These are the standard AIO key names expected by the adafruit_portalbase library.
+ADAFRUIT_AIO_USERNAME = "YOUR_AIO_USERNAME"
+ADAFRUIT_AIO_KEY = "YOUR_AIO_KEY"
+
+# ── N2YO satellite pass API ───────────────────────────────────────────────────
+# Free registration at https://www.n2yo.com/api/ (1,000 transactions/hour).
+N2YO_API_KEY = "YOUR_N2YO_API_KEY"
+
+# ── Observer location ─────────────────────────────────────────────────────────
+LATITUDE = "39.9"
+LONGITUDE = "-105.1"
+ALTITUDE_KM = "1.6"
+
+# ── Timezone ──────────────────────────────────────────────────────────────────
+# IANA timezone name — DST transitions are handled automatically via Adafruit IO.
+# Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+TIMEZONE = "America/Denver"

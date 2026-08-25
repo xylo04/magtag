@@ -9,15 +9,14 @@ Libraries needed (copy to CIRCUITPY/lib/):
   - adafruit_requests.mpy
   - adafruit_connection_manager.mpy
 
-Secrets keys required (see secrets.py.example):
-  ssid, password, n2yo_api_key, aio_username, aio_key,
-  latitude, longitude, altitude_km, timezone
+Configuration: copy settings.toml.example → settings.toml, fill in values.
+All settings are read from settings.toml via os.getenv() (CircuitPython 8+ idiom).
 """
 
+import os
 import time
 import terminalio
 from adafruit_magtag.magtag import MagTag
-from secrets import secrets
 from satellites import SATELLITES
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -46,14 +45,16 @@ def now_unix():
 def sync_time(magtag):
     """
     Sync via magtag.network.get_local_time(), which uses the Adafruit IO
-    strftime endpoint — reads aio_username/aio_key from secrets.py automatically.
-    The reply includes the DST-aware UTC offset (%z), so no local DST math needed.
+    strftime endpoint. Reads ADAFRUIT_AIO_USERNAME / ADAFRUIT_AIO_KEY from
+    settings.toml automatically. The reply includes the DST-aware UTC offset
+    (%z), so no local DST math is needed.
     Reply format: "YYYY-MM-DD HH:MM:SS.mmm yday wday +HHMM TZabbr"
     """
     global _boot_unix, _boot_mono, _utc_offset
     print("Syncing time via Adafruit IO...")
     try:
-        reply = magtag.network.get_local_time(location=secrets["timezone"])
+        timezone = os.getenv("TIMEZONE", "UTC")
+        reply = magtag.network.get_local_time(location=timezone)
         # e.g. "2026-08-25 10:51:00.000 237 2 -0600 MDT"
         fields = reply.split(" ")
 
@@ -66,7 +67,7 @@ def sync_time(magtag):
         y, mo, d = (int(x) for x in fields[0].split("-"))
         h, mi, s = (int(x) for x in fields[1].split(".")[0].split(":"))
 
-        # Convert local time-of-day to UTC seconds, handling midnight rollover
+        # Convert local time-of-day to UTC, handling midnight rollover
         utc_tod = h * 3600 + mi * 60 + s - _utc_offset
         day_adj = 0
         if utc_tod >= 86400:
@@ -74,7 +75,7 @@ def sync_time(magtag):
         elif utc_tod < 0:
             utc_tod += 86400; day_adj = -1
 
-        # Days since Unix epoch via Julian Day Number (Gregorian calendar)
+        # Days since Unix epoch via Julian Day Number (Gregorian calendar).
         # Avoids time.time() entirely — no CircuitPython epoch ambiguity.
         a = (14 - mo) // 12
         yy = y + 4800 - a
@@ -93,20 +94,23 @@ def sync_time(magtag):
 
 def n2yo_url(norad_id):
     """Build a radiopasses URL for the given NORAD ID."""
-    lat = secrets["latitude"]
-    lon = secrets["longitude"]
-    alt = secrets["altitude_km"]
-    key = secrets["n2yo_api_key"]
+    lat = os.getenv("LATITUDE", "0")
+    lon = os.getenv("LONGITUDE", "0")
+    alt = os.getenv("ALTITUDE_KM", "0")
+    key = os.getenv("N2YO_API_KEY", "")
     return (
         f"{N2YO_BASE}/radiopasses/{norad_id}"
         f"/{lat}/{lon}/{alt}"
         f"/{DAYS_AHEAD}/{MIN_ELEVATION_DEG}"
-        f"/&apiKey={key}"
+        f"/&apiKey=***}"
     )
 
 
 def fetch_passes(magtag, norad_id, label):
-    """Return list of pass dicts {label, aos, los, max_el}."""
+    """
+    Return list of pass dicts {label, aos, los, max_el}, or None if the
+    N2YO API signals a rate-limit error (caller should circuit-break).
+    """
     url = n2yo_url(norad_id)
     try:
         response = magtag.network.fetch(url)
@@ -117,8 +121,14 @@ def fetch_passes(magtag, norad_id, label):
         return []
 
     if "error" in data:
-        print(f"  {label}: API error: {data['error']}")
+        err = data["error"]
+        print(f"  {label}: API error: {err}")
+        # Rate-limit errors contain "transaction" or "exceeded"; signal caller
+        # to stop making further requests this cycle.
+        if "transaction" in err or "exceeded" in err.lower():
+            return None
         return []
+
     raw = data.get("passes") or []
     print(f"  {label}: {len(raw)} passes")
     passes = []
@@ -154,18 +164,17 @@ def build_display_lines(all_passes, utc_offset_s):
     if all_passes:
         earliest = min(p["aos"] for p in all_passes)
         latest   = max(p["aos"] for p in all_passes)
-        print(f"  AOS range: {earliest} to {latest} (now={cur}, delta_first={earliest-cur}s)")
+        print(f"  AOS range: {earliest}..{latest} (delta_first={earliest - cur}s)")
     upcoming = [p for p in all_passes if p["aos"] > cur]
     upcoming.sort(key=lambda p: p["aos"])
     upcoming = upcoming[:MAX_PASSES_SHOWN]
-    print(f"  Upcoming (future): {len(upcoming)}")
+    print(f"  Upcoming: {len(upcoming)}")
 
     lines = []
     for p in upcoming:
         hhmm = unix_to_hhmm(p["aos"], utc_offset_s)
         dur  = format_duration(p["aos"], p["los"])
         el   = int(p["max_el"])
-        # terminalio.FONT is ASCII-only — no degree symbol; column header says EL
         lines.append(f"{p['label']:<6} {hhmm}  {dur:>7}  {el:>3}")
 
     while len(lines) < MAX_PASSES_SHOWN:
@@ -215,26 +224,38 @@ def main():
     # ── Time sync ─────────────────────────────────────────────────────────────
     utc_offset_s = sync_time(magtag)
 
-    # ── Fetch & render ────────────────────────────────────────────────────────
+    # ── Fetch passes (with rate-limit circuit-breaker) ────────────────────────
     magtag.set_text(
         "Fetching passes...", index=2 + MAX_PASSES_SHOWN, auto_refresh=False
     )
 
     all_passes = []
+    rate_limited = False
     for norad_id, label, _mode in SATELLITES:
+        if rate_limited:
+            print(f"  Skipping {label} (rate limited)")
+            continue
         print(f"Fetching {label} ({norad_id})...")
-        all_passes.extend(fetch_passes(magtag, norad_id, label))
+        result = fetch_passes(magtag, norad_id, label)
+        if result is None:
+            rate_limited = True
+            print("  N2YO rate limit hit — skipping remaining satellites this cycle")
+        else:
+            all_passes.extend(result)
         time.sleep(0.5)
 
+    # ── Render ────────────────────────────────────────────────────────────────
     lines = build_display_lines(all_passes, utc_offset_s)
 
-    print(f"Rendering {len(lines)} rows + status, then refreshing display...")
+    print(f"Rendering {len(lines)} rows...")
     for i, line in enumerate(lines):
         print(f"  row {i}: {repr(line)}")
         magtag.set_text(line, index=2 + i, auto_refresh=False)
 
     now_str = unix_to_hhmm(now_unix(), utc_offset_s)
     status = f"Updated {now_str} local"
+    if rate_limited:
+        status = "N2YO rate limited"
     print(f"  status: {repr(status)}")
     magtag.set_text(status, index=2 + MAX_PASSES_SHOWN, auto_refresh=True)
 

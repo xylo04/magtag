@@ -1,40 +1,43 @@
 # sat-passes
 
 Displays upcoming amateur satellite and ISS pass times on the Adafruit MagTag's
-e-ink display. Pass predictions are fetched from the
-[N2YO API](https://www.n2yo.com/api/) so no orbital math runs on the device.
+e-ink display. Pass predictions are fetched from the [N2YO API](https://www.n2yo.com/api/)
+so no orbital math runs on the device.
 
 ## Display layout
 
 ```
-SAT    TIME   DUR     MAX EL
-──────────────────────────────────────
-ISS    14:32   9m15s    52°
-AO-91  15:07   7m40s    38°
-SO-50  16:21   5m02s    14°
-FO-29  17:55   8m33s    61°
+SAT    TIME    DUR    EL
+----------------------------------
+ISS    14:32   9m15s   52
+AO-91  15:07   7m40s   38
+SO-50  16:21   5m02s   14
+FO-29  17:55   8m33s   61
 Updated 14:05 local
 ```
 
 - **SAT** — satellite short name
 - **TIME** — AOS (acquisition of signal) in local time
 - **DUR** — pass duration (LOS − AOS)
-- **MAX EL** — maximum elevation in degrees
+- **EL** — maximum elevation in degrees
 
 ## Setup
 
-### 1. Get an N2YO API key
+### 1. Get API keys
 
-Register for free at <https://www.n2yo.com/api/>. Free tier: 1,000 transactions/hour.
-No other API keys are needed.
+**N2YO** — register for free at <https://www.n2yo.com/api/>. Free tier:
+1,000 transactions/hour. Note: during development, each device reset burns
+6 transactions (one per satellite), so the limit is easy to hit while iterating.
+
+**Adafruit IO** — free account at <https://io.adafruit.com/>. Used for DST-aware
+time sync on every boot. Key is under **My Key** in the IO dashboard.
 
 ### 2. Install CircuitPython libraries
 
-Use [circup](https://github.com/adafruit/circup), Adafruit's library manager,
-to install all dependencies automatically:
+Use [circup](https://github.com/adafruit/circup), Adafruit's library manager:
 
 ```bash
-pip install circup
+pipx install circup          # or: pip install circup
 # plug in the MagTag via USB, then:
 circup install -r requirements.txt
 ```
@@ -48,22 +51,23 @@ No font files needed — the code uses CircuitPython's built-in `terminalio.FONT
 ### 3. Configure
 
 ```bash
-cp secrets.py.example secrets.py
-# Edit secrets.py with your Wi-Fi credentials, API key, and coordinates
+cp settings.toml.example settings.toml
+# Edit settings.toml with your credentials and coordinates
 ```
 
-Required fields in `secrets.py`:
+`settings.toml` is the CircuitPython 8+ standard for device configuration.
+Values are read in code via `os.getenv()`.
 
 | Key | Description |
 |-----|-------------|
-| `ssid` / `password` | Wi-Fi credentials |
-| `n2yo_api_key` | N2YO API key |
-| `timezone` | IANA timezone name (e.g. `"America/Denver"`) |
-| `latitude` / `longitude` / `altitude_km` | Observer location |
+| `CIRCUITPY_WIFI_SSID` / `CIRCUITPY_WIFI_PASSWORD` | Wi-Fi credentials |
+| `N2YO_API_KEY` | N2YO API key |
+| `ADAFRUIT_AIO_USERNAME` / `ADAFRUIT_AIO_KEY` | Adafruit IO credentials |
+| `TIMEZONE` | IANA timezone name (e.g. `"America/Denver"`) |
+| `LATITUDE` / `LONGITUDE` / `ALTITUDE_KM` | Observer location (strings) |
 
-Time is synced from [WorldTimeAPI](https://worldtimeapi.org/) on every boot using
-the IANA timezone name. DST transitions are handled automatically — no manual
-offset config needed, ever.
+DST transitions are handled automatically via Adafruit IO's timezone database —
+no manual offset ever needed.
 
 ### 4. Deploy to MagTag
 
@@ -72,7 +76,7 @@ Copy to the `CIRCUITPY/` root:
 ```
 code.py
 satellites.py
-secrets.py        ← yours, not the example
+settings.toml     ← yours, not the example
 ```
 
 ## Customise satellites
@@ -104,9 +108,9 @@ On a 350 mAh LiPo this should run for days between charges.
 
 ## Files
 
-| File                 | Lives on device? | Notes                    |
-| -------------------- | ---------------- | ------------------------ |
-| `code.py`            | ✅ CIRCUITPY/    | Main entry point         |
-| `satellites.py`      | ✅ CIRCUITPY/    | Satellite list           |
-| `secrets.py`         | ✅ CIRCUITPY/    | Credentials — not in git |
-| `secrets.py.example` | repo only        | Template for secrets     |
+| File                    | Lives on device? | Notes                        |
+| ----------------------- | ---------------- | ---------------------------- |
+| `code.py`               | ✅ CIRCUITPY/    | Main entry point             |
+| `satellites.py`         | ✅ CIRCUITPY/    | Satellite list               |
+| `settings.toml`         | ✅ CIRCUITPY/    | Credentials — not in git     |
+| `settings.toml.example` | repo only        | Template for settings.toml   |
