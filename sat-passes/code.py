@@ -281,8 +281,9 @@ def main():
     print(f"  status: {repr(status)}")
     magtag.set_text(status, index=2 + MAX_PASSES_SHOWN, auto_refresh=True)
 
-    print(f"Sleeping for {REFRESH_INTERVAL_S}s...")
-    magtag.exit_and_deep_sleep(REFRESH_INTERVAL_S)
+    sleep_s = 600 if rate_limited else REFRESH_INTERVAL_S
+    print(f"Sleeping for {sleep_s}s...")
+    magtag.exit_and_deep_sleep(sleep_s)
 
 
 main()
