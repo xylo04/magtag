@@ -1,0 +1,36 @@
+# Normalize line endings: detect text files and store them with LF in the repo.
+* text=auto eol=lf
+
+# Explicit text files
+*.py text eol=lf diff=python
+*.md text eol=lf
+*.txt text eol=lf
+*.toml text eol=lf
+*.toml.example text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cfg text eol=lf
+*.sh text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+LICENSE text eol=lf
+
+# Binary files: never normalize or diff as text
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.bdf binary
+*.pcf binary
+*.ttf binary
+*.otf binary
+*.wav binary
+*.mp3 binary
+*.mpy binary
+*.uf2 binary
+*.bin binary
+*.zip binary
