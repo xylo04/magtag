@@ -14,6 +14,7 @@ Secrets keys required (see secrets.py.example):
 """
 
 import time
+import terminalio
 from adafruit_magtag.magtag import MagTag
 from secrets import secrets
 from satellites import SATELLITES
@@ -152,32 +153,35 @@ def main():
 
     # ── Layout ────────────────────────────────────────────────────────────────
     magtag.add_text(
-        text_position=(4, 6),
+        text_position=(4, 4),
         text_scale=1,
         text_color=0x000000,
-        text_font="/fonts/Arial-Bold-12.bdf",
+        text_font=terminalio.FONT,
     )
-    magtag.set_text("SAT    TIME   DUR     MAX EL", index=0, auto_refresh=False)
+    magtag.set_text("SAT    TIME    DUR    EL", index=0, auto_refresh=False)
 
     magtag.add_text(
-        text_position=(4, 20),
+        text_position=(4, 16),
         text_scale=1,
         text_color=0x000000,
+        text_font=terminalio.FONT,
     )
-    magtag.set_text("─" * 38, index=1, auto_refresh=False)
+    magtag.set_text("-" * 34, index=1, auto_refresh=False)
 
     for i in range(MAX_PASSES_SHOWN):
         magtag.add_text(
-            text_position=(4, 32 + i * 24),
+            text_position=(4, 26 + i * 24),
             text_scale=1,
             text_color=0x000000,
+            text_font=terminalio.FONT,
         )
 
     # Status line at bottom
     magtag.add_text(
-        text_position=(4, 120),
+        text_position=(4, 118),
         text_scale=1,
         text_color=0x000000,
+        text_font=terminalio.FONT,
     )
 
     # ── Time sync ─────────────────────────────────────────────────────────────

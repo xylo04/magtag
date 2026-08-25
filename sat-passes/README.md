@@ -43,9 +43,7 @@ circup install -r requirements.txt
 bitmap_font, lis3dh, neopixel, requests, connection_manager, …). circup resolves
 all of it from the bundle so you don't have to track it manually.
 
-You'll also need the `Arial-Bold-12.bdf` font in `CIRCUITPY/fonts/` — grab it
-from the [Adafruit CircuitPython Bundle](https://github.com/adafruit/Adafruit_CircuitPython_Bundle)
-or the MagTag learn guide assets.
+No font files needed — the code uses CircuitPython's built-in `terminalio.FONT`.
 
 ### 3. Configure
 
