@@ -41,82 +41,35 @@ def now_unix():
     return int(_boot_unix + (time.monotonic() - _boot_mono))
 
 
-# ── DST helpers ───────────────────────────────────────────────────────────────
-# US Mountain Time: UTC-7 (MST) or UTC-6 (MDT, second Sun Mar – first Sun Nov).
-# Rules have been stable since the Energy Policy Act of 2005 (effective 2007).
-
-def _day_of_week(y, m, d):
-    """Return day of week (0=Sun … 6=Sat) via Tomohiko Sakamoto's algorithm."""
-    t = (0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4)
-    if m < 3:
-        y -= 1
-    return (y + y // 4 - y // 100 + y // 400 + t[m - 1] + d) % 7
-
-
-def _nth_sunday(y, m, n):
-    """Day-of-month of the nth Sunday in month m of year y."""
-    d = 1
-    while _day_of_week(y, m, d) != 0:
-        d += 1
-    return d + (n - 1) * 7
-
-
-def _mountain_utc_offset(year, month, day):
-    """
-    DST-aware UTC offset in seconds for US Mountain Time (America/Denver).
-    No external API needed — US DST boundaries are fixed calendar math.
-    """
-    MST = -25200   # UTC-7
-    MDT = -21600   # UTC-6
-    if month < 3 or month > 11:
-        return MST
-    if 3 < month < 11:
-        return MDT
-    if month == 3:
-        return MDT if day >= _nth_sunday(year, 3, 2) else MST   # 2nd Sunday of March
-    # month == 11
-    return MST if day >= _nth_sunday(year, 11, 1) else MDT      # 1st Sunday of November
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def sync_time(magtag):
     """
-    Sync from Adafruit IO (reliable for CircuitPython; no third-party dependency).
-    AIO returns seconds since 2000-01-01 UTC (CircuitPython epoch).
-    Converts to Unix epoch for N2YO comparisons, computes DST offset locally.
+    Sync via magtag.network.get_local_time(), which uses the Adafruit IO
+    strftime endpoint — reads aio_username/aio_key from secrets.py automatically.
+    The reply includes the DST-aware UTC offset (%z), so no local DST math needed.
+    Reply format: "YYYY-MM-DD HH:MM:SS.mmm yday wday +HHMM TZabbr"
     """
     global _boot_unix, _boot_mono, _utc_offset
-    user = secrets["aio_username"]
-    key  = secrets["aio_key"]
-    url  = (
-        "https://io.adafruit.com/api/v2/"
-        + user
-        + "/integrations/time/seconds?x-aio-key="
-        + key
-    )
     print("Syncing time via Adafruit IO...")
     try:
-        resp = magtag.network.fetch(url)
-        body = resp.text.strip()
-        resp.close()
-        if not body.isdigit():
-            raise ValueError(f"unexpected AIO response: {body[:80]}")
-        aio_secs = int(body)
+        reply = magtag.network.get_local_time(location=secrets["timezone"])
+        # e.g. "2026-08-25 10:51:00.000 237 2 -0600 MDT"
+        fields = reply.split(" ")
+        tz_str = fields[4]   # e.g. "-0600"
+        sign = -1 if tz_str[0] == "-" else 1
+        _utc_offset = sign * (int(tz_str[1:3]) * 3600 + int(tz_str[3:5]) * 60)
 
-        # AIO epoch is 2000-01-01; Unix epoch is 1970-01-01 (946684800 s apart)
-        _boot_unix = aio_secs + 946684800
+        # RTC is now set to local time by get_local_time().
+        # time.time() = CP epoch seconds (since 2000-01-01) for local time.
+        # UTC Unix = local_cp_secs - utc_offset + 946684800
+        _boot_unix = int(time.time()) - _utc_offset + 946684800
         _boot_mono = time.monotonic()
 
-        # Get UTC date for DST calculation (time.localtime treats arg as CP epoch)
-        t = time.localtime(aio_secs)
-        _utc_offset = _mountain_utc_offset(t.tm_year, t.tm_mon, t.tm_mday)
-
-        abbr = "MDT" if _utc_offset == -21600 else "MST"
-        print(f"  Synced: {t.tm_year}-{t.tm_mon:02d}-{t.tm_mday:02d} UTC  →  {abbr}")
+        tz_abbr = fields[5] if len(fields) > 5 else tz_str
+        print(f"  Synced: {tz_abbr} (UTC{_utc_offset // 3600:+d})")
     except Exception as e:
         print(f"  Time sync failed: {e}")
-        # Non-fatal: passes won't be filtered by time, but still display
     return _utc_offset
 
 
