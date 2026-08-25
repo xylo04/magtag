@@ -8,6 +8,10 @@ Libraries needed (copy to CIRCUITPY/lib/):
   - adafruit_magtag/  (adafruit-circuitpython-magtag bundle)
   - adafruit_requests.mpy
   - adafruit_connection_manager.mpy
+
+Secrets keys required (see secrets.py.example):
+  ssid, password, n2yo_api_key, latitude, longitude, altitude_km,
+  timezone_offset, aio_username, aio_key
 """
 
 import time
@@ -110,6 +114,18 @@ def main():
 
     tz = secrets["timezone_offset"]
 
+    # ── Sync time via Adafruit IO ─────────────────────────────────────────────
+    # Requires aio_username + aio_key in secrets.py.
+    # Sets the device RTC so time.time() returns accurate UTC Unix timestamps,
+    # which we need to filter out already-passed N2YO results.
+    print("Syncing time via Adafruit IO...")
+    try:
+        magtag.network.get_local_time()
+        print(f"  RTC synced: {time.localtime()}")
+    except Exception as e:
+        # Non-fatal: we'll still fetch passes, but AOS filtering may be off
+        print(f"  Time sync failed: {e}")
+
     # ── Layout ────────────────────────────────────────────────────────────────
     # Header row
     magtag.add_text(
@@ -146,7 +162,7 @@ def main():
 
     # ── Fetch & render ────────────────────────────────────────────────────────
     magtag.set_text(
-        "Fetching passes...", index=2 + MAX_PASSES_SHOWN, auto_refresh=True
+        "Fetching passes...", index=2 + MAX_PASSES_SHOWN, auto_refresh=False
     )
 
     all_passes = []
