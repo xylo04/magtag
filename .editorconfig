@@ -10,15 +10,11 @@ indent_style = space
 indent_size = 4
 
 [*.py]
-indent_size = 4
 max_line_length = 100
 
 [*.{md,markdown}]
 # Markdown uses trailing double-space for hard line breaks
 trim_trailing_whitespace = false
-
-[*.{toml,toml.example}]
-indent_size = 4
 
 [*.{yml,yaml,json}]
 indent_size = 2
