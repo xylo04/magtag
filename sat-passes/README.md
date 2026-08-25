@@ -13,7 +13,7 @@ ISS    14:32   9m15s   52
 AO-91  15:07   7m40s   38
 SO-50  16:21   5m02s   14
 FO-29  17:55   8m33s   61
-Updated 14:05 local
+Updated 14:05 local, 2026-08-25, batt 84%
 ```
 
 - **SAT** — satellite short name
@@ -104,7 +104,8 @@ Common ham radio satellites:
 ## Power
 
 The MagTag deep-sleeps between refreshes (`REFRESH_INTERVAL_S`, default 1 hour).
-On a 350 mAh LiPo this should run for days between charges.
+On a 350 mAh LiPo this should run for days between charges. The bottom status
+line shows an approximate battery percentage based on the MagTag battery voltage.
 
 ## Files
 
