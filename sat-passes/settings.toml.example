@@ -15,7 +15,7 @@ ADAFRUIT_AIO_USERNAME = "YOUR_AIO_USERNAME"
 ADAFRUIT_AIO_KEY = "YOUR_AIO_KEY"
 
 # ── N2YO satellite pass API ───────────────────────────────────────────────────
-# Free registration at https://www.n2yo.com/api/ (1,000 transactions/hour).
+# Free registration at https://www.n2yo.com/api/ (100 radiopasses transactions/hour).
 N2YO_API_KEY = "YOUR_N2YO_API_KEY"
 
 # ── Observer location ─────────────────────────────────────────────────────────
