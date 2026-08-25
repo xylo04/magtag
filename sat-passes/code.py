@@ -151,6 +151,27 @@ def unix_to_hhmm(unix_ts, utc_offset_s):
     return f"{tod // 3600:02d}:{(tod % 3600) // 60:02d}"
 
 
+def unix_to_date(unix_ts, utc_offset_s):
+    """
+    Convert a UTC Unix timestamp to a local YYYY-MM-DD string.
+    Uses the Julian Day Number inverse formula — epoch-agnostic.
+    Handy on e-ink: the persistent display shows the last-updated date,
+    making it obvious if the device has been off for a while.
+    """
+    days  = (unix_ts + utc_offset_s) // 86400   # local days since Unix epoch
+    jdn   = days + 2440588                       # Julian Day Number
+    a = jdn + 32044
+    b = (4 * a + 3) // 146097
+    c = a - (146097 * b) // 4
+    d = (4 * c + 3) // 1461
+    e = c - (1461 * d) // 4
+    m = (5 * e + 2) // 153
+    day   = e - (153 * m + 2) // 5 + 1
+    month = m + 3 - 12 * (m // 10)
+    year  = 100 * b + d - 4800 + m // 10
+    return f"{year}-{month:02d}-{day:02d}"
+
+
 def format_duration(start_ts, end_ts):
     """Return pass duration as 'Xm YYs'."""
     dur = int(end_ts - start_ts)
@@ -252,10 +273,11 @@ def main():
         print(f"  row {i}: {repr(line)}")
         magtag.set_text(line, index=2 + i, auto_refresh=False)
 
-    now_str = unix_to_hhmm(now_unix(), utc_offset_s)
-    status = f"Updated {now_str} local"
+    now_str  = unix_to_hhmm(now_unix(), utc_offset_s)
+    date_str = unix_to_date(now_unix(), utc_offset_s)
+    status = f"Updated {now_str} local, {date_str}"
     if rate_limited:
-        status = "N2YO rate limited"
+        status = f"N2YO rate limited, {date_str}"
     print(f"  status: {repr(status)}")
     magtag.set_text(status, index=2 + MAX_PASSES_SHOWN, auto_refresh=True)
 
