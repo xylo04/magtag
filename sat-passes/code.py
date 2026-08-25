@@ -10,7 +10,8 @@ Libraries needed (copy to CIRCUITPY/lib/):
   - adafruit_connection_manager.mpy
 
 Secrets keys required (see secrets.py.example):
-  ssid, password, n2yo_api_key, latitude, longitude, altitude_km, timezone
+  ssid, password, n2yo_api_key, aio_username, aio_key,
+  latitude, longitude, altitude_km, timezone
 """
 
 import time
@@ -26,13 +27,9 @@ DAYS_AHEAD        = 1           # how many days of passes to request
 MIN_ELEVATION_DEG = 10          # ignore passes that barely peek over horizon
 MAX_PASSES_SHOWN  = 4           # number of pass rows on display
 
-N2YO_BASE  = "https://api.n2yo.com/rest/v1/satellite"
-WTIME_BASE = "http://worldtimeapi.org/api/timezone"
+N2YO_BASE = "https://api.n2yo.com/rest/v1/satellite"
 
 # ── Time tracking (set by sync_time) ─────────────────────────────────────────
-# We store a Unix timestamp + monotonic reference rather than relying on
-# CircuitPython's RTC epoch (2000-01-01), which differs from the Unix epoch
-# (1970-01-01) that N2YO uses. now_unix() stays accurate without any epoch math.
 
 _boot_unix  = 0     # Unix timestamp captured at last sync
 _boot_mono  = 0.0   # time.monotonic() captured at last sync
@@ -44,32 +41,79 @@ def now_unix():
     return int(_boot_unix + (time.monotonic() - _boot_mono))
 
 
+# ── DST helpers ───────────────────────────────────────────────────────────────
+# US Mountain Time: UTC-7 (MST) or UTC-6 (MDT, second Sun Mar – first Sun Nov).
+# Rules have been stable since the Energy Policy Act of 2005 (effective 2007).
+
+def _day_of_week(y, m, d):
+    """Return day of week (0=Sun … 6=Sat) via Tomohiko Sakamoto's algorithm."""
+    t = (0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4)
+    if m < 3:
+        y -= 1
+    return (y + y // 4 - y // 100 + y // 400 + t[m - 1] + d) % 7
+
+
+def _nth_sunday(y, m, n):
+    """Day-of-month of the nth Sunday in month m of year y."""
+    d = 1
+    while _day_of_week(y, m, d) != 0:
+        d += 1
+    return d + (n - 1) * 7
+
+
+def _mountain_utc_offset(year, month, day):
+    """
+    DST-aware UTC offset in seconds for US Mountain Time (America/Denver).
+    No external API needed — US DST boundaries are fixed calendar math.
+    """
+    MST = -25200   # UTC-7
+    MDT = -21600   # UTC-6
+    if month < 3 or month > 11:
+        return MST
+    if 3 < month < 11:
+        return MDT
+    if month == 3:
+        return MDT if day >= _nth_sunday(year, 3, 2) else MST   # 2nd Sunday of March
+    # month == 11
+    return MST if day >= _nth_sunday(year, 11, 1) else MDT      # 1st Sunday of November
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def sync_time(magtag, timezone):
+def sync_time(magtag):
     """
-    Fetch current time and DST-aware UTC offset from WorldTimeAPI.
-    The API returns raw_offset (base TZ, seconds) + dst_offset (DST addition,
-    seconds) separately, so we never need a hardcoded timezone_offset config.
-    Returns the DST-aware offset in seconds.
+    Sync from Adafruit IO (reliable for CircuitPython; no third-party dependency).
+    AIO returns seconds since 2000-01-01 UTC (CircuitPython epoch).
+    Converts to Unix epoch for N2YO comparisons, computes DST offset locally.
     """
     global _boot_unix, _boot_mono, _utc_offset
-    url = f"{WTIME_BASE}/{timezone}"
-    print(f"Syncing time for {timezone}...")
+    user = secrets["aio_username"]
+    key  = secrets["aio_key"]
+    url  = (
+        "https://io.adafruit.com/api/v2/"
+        + user
+        + "/integrations/time/seconds?x-aio-key="
+        + key
+    )
+    print("Syncing time via Adafruit IO...")
     try:
         resp = magtag.network.fetch(url)
-        data = resp.json()
+        aio_secs = int(resp.text.strip())
         resp.close()
-        _utc_offset = data["raw_offset"] + data["dst_offset"]
-        _boot_unix  = data["unixtime"]   # true Unix timestamp
-        _boot_mono  = time.monotonic()
-        abbr     = data.get("abbreviation", "?")
-        offset_h = _utc_offset // 3600
-        print(f"  Synced: {abbr} (UTC{offset_h:+d}), unix={_boot_unix}")
+
+        # AIO epoch is 2000-01-01; Unix epoch is 1970-01-01 (946684800 s apart)
+        _boot_unix = aio_secs + 946684800
+        _boot_mono = time.monotonic()
+
+        # Get UTC date for DST calculation (time.localtime treats arg as CP epoch)
+        t = time.localtime(aio_secs)
+        _utc_offset = _mountain_utc_offset(t.tm_year, t.tm_mon, t.tm_mday)
+
+        abbr = "MDT" if _utc_offset == -21600 else "MST"
+        print(f"  Synced: {t.tm_year}-{t.tm_mon:02d}-{t.tm_mday:02d} UTC  →  {abbr}")
     except Exception as e:
         print(f"  Time sync failed: {e}")
-        # Non-fatal: _boot_unix stays 0, so all passes will be shown
-        # (better than hard-crashing on a transient network hiccup)
+        # Non-fatal: passes won't be filtered by time, but still display
     return _utc_offset
 
 
@@ -83,7 +127,7 @@ def n2yo_url(norad_id):
         f"{N2YO_BASE}/radiopasses/{norad_id}"
         f"/{lat}/{lon}/{alt}"
         f"/{DAYS_AHEAD}/{MIN_ELEVATION_DEG}"
-        f"/&apiKey={key}"
+        f"/&apiKey=***}"
     )
 
 
@@ -112,9 +156,9 @@ def fetch_passes(magtag, norad_id, label):
 def unix_to_hhmm(unix_ts, utc_offset_s):
     """
     Convert a UTC Unix timestamp to a local HH:MM string.
-    Pure modular arithmetic — no CircuitPython epoch assumptions required.
+    Pure modular arithmetic — no CircuitPython epoch assumptions.
     """
-    tod = (unix_ts + utc_offset_s) % 86400   # seconds into the local day
+    tod = (unix_ts + utc_offset_s) % 86400
     return f"{tod // 3600:02d}:{(tod % 3600) // 60:02d}"
 
 
@@ -136,9 +180,9 @@ def build_display_lines(all_passes, utc_offset_s):
         hhmm = unix_to_hhmm(p["aos"], utc_offset_s)
         dur  = format_duration(p["aos"], p["los"])
         el   = int(p["max_el"])
-        lines.append(f"{p['label']:<6} {hhmm}  {dur:>7}  {el:>2}°")
+        # terminalio.FONT is ASCII-only — no degree symbol; column header says EL
+        lines.append(f"{p['label']:<6} {hhmm}  {dur:>7}  {el:>3}")
 
-    # Pad so layout stays stable when fewer than MAX_PASSES_SHOWN remain
     while len(lines) < MAX_PASSES_SHOWN:
         lines.append("")
 
@@ -176,7 +220,6 @@ def main():
             text_font=terminalio.FONT,
         )
 
-    # Status line at bottom
     magtag.add_text(
         text_position=(4, 118),
         text_scale=1,
@@ -185,9 +228,7 @@ def main():
     )
 
     # ── Time sync ─────────────────────────────────────────────────────────────
-    # WorldTimeAPI returns raw_offset + dst_offset separately, so the device
-    # always knows the correct local offset without any manual DST config.
-    utc_offset_s = sync_time(magtag, secrets["timezone"])
+    utc_offset_s = sync_time(magtag)
 
     # ── Fetch & render ────────────────────────────────────────────────────────
     magtag.set_text(
@@ -198,7 +239,7 @@ def main():
     for norad_id, label, _mode in SATELLITES:
         print(f"Fetching {label} ({norad_id})...")
         all_passes.extend(fetch_passes(magtag, norad_id, label))
-        time.sleep(0.5)   # be polite to the API
+        time.sleep(0.5)
 
     lines = build_display_lines(all_passes, utc_offset_s)
 
