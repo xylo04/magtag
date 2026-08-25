@@ -98,8 +98,11 @@ def sync_time(magtag):
     print("Syncing time via Adafruit IO...")
     try:
         resp = magtag.network.fetch(url)
-        aio_secs = int(resp.text.strip())
+        body = resp.text.strip()
         resp.close()
+        if not body.isdigit():
+            raise ValueError(f"unexpected AIO response: {body[:80]}")
+        aio_secs = int(body)
 
         # AIO epoch is 2000-01-01; Unix epoch is 1970-01-01 (946684800 s apart)
         _boot_unix = aio_secs + 946684800
@@ -127,7 +130,7 @@ def n2yo_url(norad_id):
         f"{N2YO_BASE}/radiopasses/{norad_id}"
         f"/{lat}/{lon}/{alt}"
         f"/{DAYS_AHEAD}/{MIN_ELEVATION_DEG}"
-        f"/&apiKey=***}"
+        f"/&apiKey={key}"
     )
 
 
