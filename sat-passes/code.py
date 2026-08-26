@@ -359,9 +359,10 @@ def main():
     # A button press swaps in the status page for a while; the pass list is
     # drawn afterwards either way, so the display is left showing passes.
     if button_wake:
+        updated = now_unix()
         lines = status_lines(
-            unix_to_hhmm(now_unix(), utc_offset_s),
-            unix_to_date(now_unix(), utc_offset_s),
+            unix_to_hhmm(updated, utc_offset_s),
+            unix_to_date(updated, utc_offset_s),
             read_battery_percent(magtag),
             rate_limited,
         )
