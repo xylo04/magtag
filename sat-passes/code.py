@@ -18,13 +18,14 @@ import time
 import alarm
 import board
 import displayio
+import supervisor
 import terminalio
 import vectorio
 from adafruit_magtag.magtag import MagTag
 from n2yo import N2YOClient
 from passes import ACTIVE, RECENT, next_wake_s, select_passes
 from satellites import SATELLITES
-from status import battery_percent, status_lines
+from status import LOW_BATTERY_PERCENT, battery_percent, is_low_battery, status_lines
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,11 @@ RECENT_RETENTION_S = int(os.getenv("RECENT_PASS_RETENTION_S", "900"))
 # How long the status page stays up after a button press before the pass list
 # comes back.
 STATUS_PAGE_DURATION_S = int(os.getenv("STATUS_PAGE_DURATION_S", "15"))
+
+# Below this battery percentage, and while unplugged, skip all network work and
+# just ask to be charged, so stale pass times can't linger on the display.
+LOW_BATTERY_PCT     = int(os.getenv("LOW_BATTERY_PERCENT", str(LOW_BATTERY_PERCENT)))
+LOW_BATTERY_SLEEP_S = 3600      # re-check the battery once an hour
 
 ROW_HEIGHT = 23                 # vertical pitch between pass rows
 ROW_TOP    = 26                 # baseline (vertical centre) of the first row
@@ -255,6 +261,34 @@ def render_passes(magtag, rows, highlights):
     magtag.refresh()
 
 
+def usb_power_connected():
+    """True when the MagTag has USB power (and so can charge) attached."""
+    try:
+        return bool(supervisor.runtime.usb_connected)
+    except AttributeError:
+        return False
+
+
+def render_charge_me(magtag):
+    """
+    Draw the low-battery page: "Charge Me" in large letters, nothing else.
+
+    This is the only thing drawn in low-battery mode, so no network work has
+    happened and there is no stale pass data left on the display.
+    """
+    print("Rendering charge me page")
+    magtag.add_text(
+        text_position=(magtag.graphics.display.width // 2,
+                       magtag.graphics.display.height // 2),
+        text_scale=4,
+        text_color=0x000000,
+        text_font=terminalio.FONT,
+        text_anchor_point=(0.5, 0.5),
+    )
+    magtag.set_text("Charge Me", index=0, auto_refresh=False)
+    magtag.refresh()
+
+
 def render_status(magtag, highlights, lines):
     """Draw the "last updated and battery state" page on its own."""
     print(f"Rendering status page: {lines}")
@@ -300,6 +334,16 @@ def main():
     magtag = MagTag()
     button_wake = woke_from_button()
     print(f"Boot: button_wake={button_wake}")
+
+    # ── Low battery ───────────────────────────────────────────────────────────
+    # Checked before anything else: no APIs are queried and no pass data is
+    # drawn until the battery is charged again.
+    battery_pct = read_battery_percent(magtag)
+    if is_low_battery(battery_pct, usb_power_connected(), LOW_BATTERY_PCT):
+        print(f"Low battery ({battery_pct}% <= {LOW_BATTERY_PCT}%), charge me mode")
+        render_charge_me(magtag)
+        deep_sleep(magtag, LOW_BATTERY_SLEEP_S)
+
     magtag.network.connect()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -363,7 +407,7 @@ def main():
         lines = status_lines(
             unix_to_hhmm(updated, utc_offset_s),
             unix_to_date(updated, utc_offset_s),
-            read_battery_percent(magtag),
+            battery_pct,
             rate_limited,
         )
         render_status(magtag, highlights, lines)

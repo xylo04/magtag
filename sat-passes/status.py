@@ -3,6 +3,20 @@
 BATTERY_EMPTY_V = 3.20      # approximate 0% for a single-cell LiPo
 BATTERY_FULL_V  = 4.20      # approximate 100% for a single-cell LiPo
 
+LOW_BATTERY_PERCENT = 5     # at or below this, and unplugged, ask for a charge
+
+
+def is_low_battery(battery_pct, usb_connected, threshold=LOW_BATTERY_PERCENT):
+    """
+    Return True when the device runs on battery at or below ``threshold``.
+
+    An unknown battery reading or a plugged-in device never counts as low, so
+    normal operation is the default whenever the state is uncertain.
+    """
+    if usb_connected or battery_pct is None:
+        return False
+    return battery_pct <= threshold
+
 
 def battery_percent(voltage, empty_v=BATTERY_EMPTY_V, full_v=BATTERY_FULL_V):
     """
