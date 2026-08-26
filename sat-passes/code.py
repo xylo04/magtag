@@ -392,5 +392,4 @@ def main():
     magtag.exit_and_deep_sleep(sleep_s)
 
 
-if __name__ == "__main__":
-    main()
+main()
