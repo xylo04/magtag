@@ -101,7 +101,8 @@ class N2YOClient:
         if "error" in data:
             err = str(data["error"])
             print(f"  {label}: API error: {err}")
-            if "transaction" in err or "exceeded" in err.lower():
+            err_lower = err.lower()
+            if "transaction" in err_lower or "exceeded" in err_lower:
                 return None
             return False
 

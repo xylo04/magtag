@@ -102,7 +102,7 @@ class N2YOClientTest(unittest.TestCase):
                 "2": {"fetched_at": 1, "passes": [second]},
             })
             network = FakeNetwork([FakeResponse({
-                "error": "Daily transaction limit exceeded",
+                "error": "Transaction limit reached",
             })])
             client = N2YOClient(network, lambda: 1000, path)
 
