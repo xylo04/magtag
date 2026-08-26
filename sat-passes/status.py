@@ -9,7 +9,7 @@ LOW_BATTERY_PERCENT = 5     # at or below this, and unplugged, ask for a charge
 # so leftover memory isn't mistaken for a record, then the Unix timestamp and
 # the UTC offset, both as four big-endian bytes.
 LAST_UPDATED_MAGIC = 0x53
-LAST_UPDATED_LEN   = 9
+LAST_UPDATED_LEN   = 1 + 4 + 4      # magic + timestamp + offset
 
 
 def is_low_battery(battery_pct, usb_connected, threshold=LOW_BATTERY_PERCENT):
