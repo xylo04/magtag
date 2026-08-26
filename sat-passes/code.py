@@ -321,6 +321,8 @@ def main():
     for norad_id, label, _mode in SATELLITES:
         cache_key = str(norad_id)
         entry = cache["satellites"].get(cache_key, {})
+        if not isinstance(entry, dict):
+            entry = {}
         cached_data = entry.get("passes", [])
         if not isinstance(cached_data, list):
             cached_data = []
@@ -328,6 +330,12 @@ def main():
         fetched_at = entry.get("fetched_at", 0)
         if not isinstance(fetched_at, (int, float)):
             fetched_at = 0
+        if cache_key in cache["satellites"] and cached != cached_data:
+            cache["satellites"][cache_key] = {
+                "fetched_at": fetched_at,
+                "passes": cached,
+            }
+            cache_dirty = True
         cache_age = cur - fetched_at
 
         if 0 <= cache_age < CACHE_TIMEOUT_S:
