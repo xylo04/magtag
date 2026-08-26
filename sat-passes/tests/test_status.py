@@ -4,7 +4,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from status import battery_percent, is_low_battery, status_lines
+from status import (
+    UTC_OFFSET_LEN,
+    battery_percent,
+    is_low_battery,
+    pack_utc_offset,
+    status_lines,
+    unpack_utc_offset,
+)
 
 
 class BatteryPercentTest(unittest.TestCase):
@@ -58,6 +65,32 @@ class StatusLinesTest(unittest.TestCase):
             status_lines("14:05", "2026-08-25", 84, rate_limited=True)[-1],
             "N2YO rate limited",
         )
+
+    def test_unknown_update_time_omits_the_date(self):
+        self.assertEqual(
+            status_lines(None, None, 84),
+            ["Updated unknown", "Battery 84%"],
+        )
+
+
+class UtcOffsetTest(unittest.TestCase):
+    def test_round_trips_a_negative_offset(self):
+        packed = pack_utc_offset(-21600)
+        self.assertEqual(len(packed), UTC_OFFSET_LEN)
+        self.assertEqual(unpack_utc_offset(packed), -21600)
+
+    def test_round_trips_a_positive_offset(self):
+        self.assertEqual(unpack_utc_offset(pack_utc_offset(3600)), 3600)
+
+    def test_round_trips_utc(self):
+        self.assertEqual(unpack_utc_offset(pack_utc_offset(0)), 0)
+
+    def test_uninitialised_memory_is_unknown(self):
+        self.assertIsNone(unpack_utc_offset(bytes(UTC_OFFSET_LEN)))
+
+    def test_short_or_missing_data_is_unknown(self):
+        self.assertIsNone(unpack_utc_offset(None))
+        self.assertIsNone(unpack_utc_offset(b"\x53\x00"))
 
 
 if __name__ == "__main__":

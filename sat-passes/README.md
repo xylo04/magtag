@@ -40,6 +40,18 @@ Updated 14:05
 Battery 84%
 ```
 
+**Updated** is the last time the N2YO API was successfully queried — not the
+last time the display was refreshed, which happens far more often and is
+visible from the pass rows anyway. It comes from the `/n2yo_cache.json` fetch
+timestamps, so it survives a power cycle; a cached cycle leaves it unchanged.
+
+The status page is drawn *before* any network work, so a button press is
+responsive rather than waiting on the time sync and N2YO lookups. Rendering it
+in local time also needs the UTC offset, which is remembered in
+`alarm.sleep_memory` across deep sleep; once the refresh finishes, the page is
+redrawn if anything on it changed. After a power cycle the offset isn't known
+until the time sync lands, so the page briefly reads `Updated unknown`.
+
 `N2YO rate limited` is added as a fourth line when the last refresh was blocked
 by the N2YO transaction limit.
 

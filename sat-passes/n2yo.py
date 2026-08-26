@@ -60,6 +60,23 @@ class N2YOClient:
             print(f"  cache read failed: {e}")
             return {"satellites": {}}
 
+    @property
+    def last_fetch_at(self):
+        """
+        Unix time of the most recent successful N2YO query, or 0 if never.
+
+        Read from the flash cache, so it is available before any network work
+        and survives a power cycle.
+        """
+        newest = 0
+        for entry in self.cache["satellites"].values():
+            if not isinstance(entry, dict):
+                continue
+            fetched_at = entry.get("fetched_at", 0)
+            if isinstance(fetched_at, (int, float)) and fetched_at > newest:
+                newest = int(fetched_at)
+        return newest
+
     def save(self):
         """Persist changed cache entries to flash."""
         if not self.cache_dirty:
