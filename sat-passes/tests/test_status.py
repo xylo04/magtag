@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from status import battery_percent, status_lines
+from status import battery_percent, is_low_battery, status_lines
 
 
 class BatteryPercentTest(unittest.TestCase):
@@ -19,6 +19,25 @@ class BatteryPercentTest(unittest.TestCase):
 
     def test_missing_reading_passes_through(self):
         self.assertIsNone(battery_percent(None))
+
+
+class IsLowBatteryTest(unittest.TestCase):
+    def test_at_or_below_threshold_on_battery(self):
+        self.assertTrue(is_low_battery(5, False))
+        self.assertTrue(is_low_battery(0, False))
+
+    def test_above_threshold_is_normal(self):
+        self.assertFalse(is_low_battery(6, False))
+
+    def test_plugged_in_is_never_low(self):
+        self.assertFalse(is_low_battery(2, True))
+
+    def test_unknown_battery_is_never_low(self):
+        self.assertFalse(is_low_battery(None, False))
+
+    def test_threshold_is_configurable(self):
+        self.assertTrue(is_low_battery(10, False, threshold=10))
+        self.assertFalse(is_low_battery(10, False, threshold=9))
 
 
 class StatusLinesTest(unittest.TestCase):

@@ -43,6 +43,19 @@ Battery 84%
 `N2YO rate limited` is added as a fourth line when the last refresh was blocked
 by the N2YO transaction limit.
 
+### Low battery mode
+
+When the battery is at or below `LOW_BATTERY_PERCENT` (default 5) and the
+MagTag is not plugged in, it skips the time and N2YO lookups entirely and shows
+only:
+
+```
+Charge Me
+```
+
+in large letters, so stale pass times can't linger on the e-ink display. It then
+sleeps for an hour before re-checking, or until a button is pressed.
+
 ## Setup
 
 ### 1. Get API keys
@@ -91,6 +104,7 @@ Values are read in code via `os.getenv()`.
 | `CACHE_LOS_RETENTION_S` | Seconds to retain passes after LOS (default `1800`) |
 | `RECENT_PASS_RETENTION_S` | Seconds a finished pass stays on the display (default `900`; keep ≤ `CACHE_LOS_RETENTION_S`) |
 | `STATUS_PAGE_DURATION_S` | Seconds the status page stays up after a button press (default `15`) |
+| `LOW_BATTERY_PERCENT` | Battery percentage at or below which "Charge Me" mode kicks in while unplugged (default `5`) |
 
 DST transitions are handled automatically via Adafruit IO's timezone database —
 no manual offset ever needed.
