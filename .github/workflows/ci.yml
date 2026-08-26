@@ -11,6 +11,8 @@ on:
 jobs:
   sat-passes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: sat-passes
