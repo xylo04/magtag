@@ -5,6 +5,12 @@ BATTERY_FULL_V  = 4.20      # approximate 100% for a single-cell LiPo
 
 LOW_BATTERY_PERCENT = 5     # at or below this, and unplugged, ask for a charge
 
+# Layout of the "last updated" record kept in alarm.sleep_memory: a magic byte
+# so leftover memory isn't mistaken for a record, then the Unix timestamp and
+# the UTC offset, both as four big-endian bytes.
+LAST_UPDATED_MAGIC = 0x53
+LAST_UPDATED_LEN   = 9
+
 
 def is_low_battery(battery_pct, usb_connected, threshold=LOW_BATTERY_PERCENT):
     """
@@ -36,8 +42,16 @@ def battery_percent(voltage, empty_v=BATTERY_EMPTY_V, full_v=BATTERY_FULL_V):
 
 
 def status_lines(time_str, date_str, battery_pct, rate_limited=False):
-    """Return the lines of the "last updated and battery state" page."""
-    lines = [f"Updated {time_str}", date_str]
+    """
+    Return the lines of the "last updated and battery state" page.
+
+    ``time_str`` is ``None`` when no previous update is known (for example on
+    the first boot after a power cycle), in which case the date is omitted too.
+    """
+    if time_str is None:
+        lines = ["Updated unknown"]
+    else:
+        lines = [f"Updated {time_str}", date_str]
     if battery_pct is None:
         lines.append("Battery unknown")
     else:
@@ -45,3 +59,34 @@ def status_lines(time_str, date_str, battery_pct, rate_limited=False):
     if rate_limited:
         lines.append("N2YO rate limited")
     return lines
+
+
+def pack_last_updated(unix_ts, utc_offset_s):
+    """Encode a last-updated timestamp and UTC offset as bytes."""
+    ts  = int(unix_ts) & 0xFFFFFFFF
+    off = int(utc_offset_s) & 0xFFFFFFFF
+    return bytes([
+        LAST_UPDATED_MAGIC,
+        (ts >> 24) & 0xFF, (ts >> 16) & 0xFF, (ts >> 8) & 0xFF, ts & 0xFF,
+        (off >> 24) & 0xFF, (off >> 16) & 0xFF, (off >> 8) & 0xFF, off & 0xFF,
+    ])
+
+
+def unpack_last_updated(data):
+    """
+    Decode ``pack_last_updated`` output back into ``(unix_ts, utc_offset_s)``.
+
+    Returns ``(None, None)`` for anything that isn't a valid record, so an
+    uninitialised or garbled sleep memory simply means "never updated".
+    """
+    if data is None or len(data) < LAST_UPDATED_LEN:
+        return (None, None)
+    if data[0] != LAST_UPDATED_MAGIC:
+        return (None, None)
+    ts  = (data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4]
+    off = (data[5] << 24) | (data[6] << 16) | (data[7] << 8) | data[8]
+    if off >= 0x80000000:
+        off -= 0x100000000
+    if ts == 0:
+        return (None, None)
+    return (ts, off)

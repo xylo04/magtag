@@ -4,7 +4,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from status import battery_percent, is_low_battery, status_lines
+from status import (
+    LAST_UPDATED_LEN,
+    battery_percent,
+    is_low_battery,
+    pack_last_updated,
+    status_lines,
+    unpack_last_updated,
+)
 
 
 class BatteryPercentTest(unittest.TestCase):
@@ -58,6 +65,35 @@ class StatusLinesTest(unittest.TestCase):
             status_lines("14:05", "2026-08-25", 84, rate_limited=True)[-1],
             "N2YO rate limited",
         )
+
+    def test_unknown_update_time_omits_the_date(self):
+        self.assertEqual(
+            status_lines(None, None, 84),
+            ["Updated unknown", "Battery 84%"],
+        )
+
+
+class LastUpdatedTest(unittest.TestCase):
+    def test_round_trips_a_timestamp_and_offset(self):
+        packed = pack_last_updated(1787654321, -21600)
+        self.assertEqual(len(packed), LAST_UPDATED_LEN)
+        self.assertEqual(unpack_last_updated(packed), (1787654321, -21600))
+
+    def test_round_trips_a_positive_offset(self):
+        self.assertEqual(
+            unpack_last_updated(pack_last_updated(1787654321, 3600)),
+            (1787654321, 3600),
+        )
+
+    def test_uninitialised_memory_is_unknown(self):
+        self.assertEqual(unpack_last_updated(bytes(LAST_UPDATED_LEN)), (None, None))
+
+    def test_short_or_missing_data_is_unknown(self):
+        self.assertEqual(unpack_last_updated(None), (None, None))
+        self.assertEqual(unpack_last_updated(b"\x53\x00"), (None, None))
+
+    def test_zero_timestamp_is_unknown(self):
+        self.assertEqual(unpack_last_updated(pack_last_updated(0, 0)), (None, None))
 
 
 if __name__ == "__main__":
