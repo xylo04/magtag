@@ -93,12 +93,9 @@ class N2YOClient:
         for pass_info in cached + fetched:
             try:
                 if pass_info["los"] + self.los_retention_s >= cur:
-                    key = (
-                        pass_info["label"],
-                        pass_info["aos"],
-                        pass_info["los"],
-                    )
-                    merged[key] = pass_info
+                    key = pass_info["los"]
+                    if key not in merged or pass_info["aos"] <= merged[key]["aos"]:
+                        merged[key] = pass_info
             except (KeyError, TypeError):
                 print("  ignoring invalid cached pass")
         return list(merged.values())

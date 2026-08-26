@@ -92,6 +92,27 @@ class N2YOClientTest(unittest.TestCase):
             self.assertEqual(saved["satellites"]["1"]["passes"], passes)
             self.assertEqual(saved["satellites"]["1"]["fetched_at"], 1000)
 
+    def test_active_pass_response_keeps_original_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "cache.json")
+            original = {
+                "label": "FO-29", "aos": 710, "los": 730, "max_el": 40,
+            }
+            self.write_cache(path, {
+                "820": {"fetched_at": 100, "passes": [original]},
+            })
+            response = FakeResponse({"passes": [
+                {"startUTC": 711, "endUTC": 730, "maxEl": 35},
+            ]})
+            client = N2YOClient(
+                FakeNetwork([response]),
+                lambda: 720,
+                path,
+                cache_timeout_s=600,
+            )
+
+            self.assertEqual(client.get_passes(820, "FO-29"), [original])
+
     def test_rate_limit_uses_stale_cache_and_stops_requests(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "cache.json")
