@@ -27,12 +27,12 @@ from passes import ACTIVE, RECENT, next_wake_s, select_passes
 from satellites import SATELLITES
 from status import (
     LOW_BATTERY_PERCENT,
-    LAST_UPDATED_LEN,
+    UTC_OFFSET_LEN,
     battery_percent,
     is_low_battery,
-    pack_last_updated,
+    pack_utc_offset,
     status_lines,
-    unpack_last_updated,
+    unpack_utc_offset,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -247,34 +247,42 @@ def woke_from_button():
         return False
 
 
-def save_last_updated(unix_ts, utc_offset_s):
-    """
-    Remember when the display was last refreshed, across deep sleep.
+def clock_synced():
+    """True once ``sync_time`` has established a real wall-clock reference."""
+    return _boot_unix != 0
 
-    ``alarm.sleep_memory`` survives deep sleep but not a power cycle, which is
-    exactly the lifetime this needs: it lets the status page be drawn on a
-    button press before any network work has happened.
+
+def save_utc_offset(utc_offset_s):
+    """
+    Remember the DST-aware UTC offset across deep sleep.
+
+    ``alarm.sleep_memory`` survives deep sleep but not a power cycle. It lets
+    the status page render the last N2YO query time in local time on a button
+    press, before the clock has been re-synced over the network.
     """
     try:
-        alarm.sleep_memory[0:LAST_UPDATED_LEN] = pack_last_updated(
-            unix_ts, utc_offset_s
-        )
+        alarm.sleep_memory[0:UTC_OFFSET_LEN] = pack_utc_offset(utc_offset_s)
     except (AttributeError, ValueError, RuntimeError) as e:
-        print(f"  last-updated save failed: {e}")
+        print(f"  UTC offset save failed: {e}")
 
 
-def load_last_updated():
-    """Return the remembered ``(unix_ts, utc_offset_s)``, or ``(None, None)``."""
+def load_utc_offset():
+    """Return the remembered UTC offset in seconds, or ``None``."""
     try:
-        return unpack_last_updated(bytes(alarm.sleep_memory[0:LAST_UPDATED_LEN]))
+        return unpack_utc_offset(bytes(alarm.sleep_memory[0:UTC_OFFSET_LEN]))
     except (AttributeError, ValueError, RuntimeError) as e:
-        print(f"  last-updated read failed: {e}")
-        return (None, None)
+        print(f"  UTC offset read failed: {e}")
+        return None
 
 
 def build_status_lines(unix_ts, utc_offset_s, battery_pct, rate_limited=False):
-    """Status page lines for a last-updated time, which may be unknown."""
-    if unix_ts is None:
+    """
+    Status page lines for the last N2YO query time.
+
+    Both the timestamp and the offset are needed to render a local time, so an
+    unknown either way shows as "Updated unknown".
+    """
+    if not unix_ts or utc_offset_s is None:
         return status_lines(None, None, battery_pct, rate_limited)
     return status_lines(
         unix_to_hhmm(unix_ts, utc_offset_s),
@@ -423,14 +431,24 @@ def main():
     )
 
     # ── Status page ───────────────────────────────────────────────────────────
-    # Drawn before any network work, so a button press feels responsive. The
-    # last-updated time comes from sleep memory; it is refreshed further down
-    # if the fetch produces a newer one.
+    # Drawn before any network work, so a button press feels responsive.
+    # "Updated" is the last time N2YO was queried, which the client reads
+    # straight from its flash cache; the offset needed to show it in local time
+    # comes from sleep memory. Both are refreshed further down if this cycle
+    # queries N2YO again.
+    n2yo = N2YOClient(
+        magtag.network,
+        now_unix,
+        days_ahead=DAYS_AHEAD,
+        min_elevation_deg=MIN_ELEVATION_DEG,
+    )
+
     shown_lines   = None
     status_expiry = 0.0
     if button_wake:
-        prev_unix, prev_offset = load_last_updated()
-        shown_lines = build_status_lines(prev_unix, prev_offset, battery_pct)
+        shown_lines = build_status_lines(
+            n2yo.last_fetch_at, load_utc_offset(), battery_pct
+        )
         render_status(magtag, highlights, shown_lines)
         status_expiry = time.monotonic() + STATUS_PAGE_DURATION_S
 
@@ -438,15 +456,11 @@ def main():
 
     # ── Time sync ─────────────────────────────────────────────────────────────
     utc_offset_s = sync_time(magtag)
+    if clock_synced():
+        save_utc_offset(utc_offset_s)
 
     # ── Fetch passes (with cache and rate-limit circuit-breaker) ──────────────
     all_passes = []
-    n2yo = N2YOClient(
-        magtag.network,
-        now_unix,
-        days_ahead=DAYS_AHEAD,
-        min_elevation_deg=MIN_ELEVATION_DEG,
-    )
     for norad_id, label, _mode in SATELLITES:
         all_passes.extend(n2yo.get_passes(norad_id, label))
         if n2yo.last_request_made:
@@ -455,18 +469,18 @@ def main():
     rate_limited = n2yo.rate_limited
 
     # ── Render ────────────────────────────────────────────────────────────────
-    # A failed time sync leaves the clock unset, so there is no honest
-    # "updated" time to show or to remember.
-    updated = now_unix() if _boot_unix else None
-    if updated is not None:
-        save_last_updated(updated, utc_offset_s)
     rows = build_display_rows(all_passes, utc_offset_s)
 
     # The status page is already up if a button woke us; redraw it only when the
     # fresh data changed what it says, then leave it up for the rest of its
     # duration before the pass list comes back.
     if button_wake:
-        lines = build_status_lines(updated, utc_offset_s, battery_pct, rate_limited)
+        lines = build_status_lines(
+            n2yo.last_fetch_at,
+            utc_offset_s if clock_synced() else None,
+            battery_pct,
+            rate_limited,
+        )
         if lines != shown_lines:
             render_status(magtag, highlights, lines)
         remaining = status_expiry - time.monotonic()

@@ -151,5 +151,45 @@ class N2YOClientTest(unittest.TestCase):
             )
 
 
+class LastFetchAtTest(unittest.TestCase):
+    def client(self, directory, satellites):
+        path = os.path.join(directory, "cache.json")
+        with open(path, "w") as cache_file:
+            json.dump({"satellites": satellites}, cache_file)
+        return N2YOClient(FakeNetwork(), lambda: 1000, path)
+
+    def test_reports_the_newest_cached_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = self.client(directory, {
+                "25544": {"fetched_at": 800, "passes": []},
+                "27607": {"fetched_at": 950, "passes": []},
+            })
+            self.assertEqual(client.last_fetch_at, 950)
+
+    def test_empty_cache_has_never_fetched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = self.client(directory, {})
+            self.assertEqual(client.last_fetch_at, 0)
+
+    def test_ignores_invalid_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = self.client(directory, {
+                "25544": "not a dict",
+                "27607": {"passes": []},
+                "43017": {"fetched_at": "soon", "passes": []},
+                "43137": {"fetched_at": 700, "passes": []},
+            })
+            self.assertEqual(client.last_fetch_at, 700)
+
+    def test_advances_after_a_successful_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = self.client(directory, {
+                "25544": {"fetched_at": 100, "passes": []},
+            })
+            client.network.responses.append(FakeResponse({"passes": []}))
+            client.get_passes(25544, "ISS")
+            self.assertEqual(client.last_fetch_at, 1000)
+
+
 if __name__ == "__main__":
     unittest.main()

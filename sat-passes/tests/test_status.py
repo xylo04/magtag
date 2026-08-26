@@ -5,12 +5,12 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from status import (
-    LAST_UPDATED_LEN,
+    UTC_OFFSET_LEN,
     battery_percent,
     is_low_battery,
-    pack_last_updated,
+    pack_utc_offset,
     status_lines,
-    unpack_last_updated,
+    unpack_utc_offset,
 )
 
 
@@ -73,27 +73,24 @@ class StatusLinesTest(unittest.TestCase):
         )
 
 
-class LastUpdatedTest(unittest.TestCase):
-    def test_round_trips_a_timestamp_and_offset(self):
-        packed = pack_last_updated(1787654321, -21600)
-        self.assertEqual(len(packed), LAST_UPDATED_LEN)
-        self.assertEqual(unpack_last_updated(packed), (1787654321, -21600))
+class UtcOffsetTest(unittest.TestCase):
+    def test_round_trips_a_negative_offset(self):
+        packed = pack_utc_offset(-21600)
+        self.assertEqual(len(packed), UTC_OFFSET_LEN)
+        self.assertEqual(unpack_utc_offset(packed), -21600)
 
     def test_round_trips_a_positive_offset(self):
-        self.assertEqual(
-            unpack_last_updated(pack_last_updated(1787654321, 3600)),
-            (1787654321, 3600),
-        )
+        self.assertEqual(unpack_utc_offset(pack_utc_offset(3600)), 3600)
+
+    def test_round_trips_utc(self):
+        self.assertEqual(unpack_utc_offset(pack_utc_offset(0)), 0)
 
     def test_uninitialised_memory_is_unknown(self):
-        self.assertEqual(unpack_last_updated(bytes(LAST_UPDATED_LEN)), (None, None))
+        self.assertIsNone(unpack_utc_offset(bytes(UTC_OFFSET_LEN)))
 
     def test_short_or_missing_data_is_unknown(self):
-        self.assertEqual(unpack_last_updated(None), (None, None))
-        self.assertEqual(unpack_last_updated(b"\x53\x00"), (None, None))
-
-    def test_zero_timestamp_is_unknown(self):
-        self.assertEqual(unpack_last_updated(pack_last_updated(0, 0)), (None, None))
+        self.assertIsNone(unpack_utc_offset(None))
+        self.assertIsNone(unpack_utc_offset(b"\x53\x00"))
 
 
 if __name__ == "__main__":
