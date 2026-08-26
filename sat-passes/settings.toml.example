@@ -23,6 +23,11 @@ N2YO_API_KEY = "YOUR_N2YO_API_KEY"
 CACHE_TIMEOUT_S = "600"
 CACHE_LOS_RETENTION_S = "1800"
 
+# ── Display ───────────────────────────────────────────────────────────────────
+# Keep a finished pass on the display for 15 minutes after LOS, subdued.
+# Keep this at or below CACHE_LOS_RETENTION_S so the passes are still cached.
+RECENT_PASS_RETENTION_S = "900"
+
 # ── Observer location ─────────────────────────────────────────────────────────
 LATITUDE = "39.9"
 LONGITUDE = "-105.1"

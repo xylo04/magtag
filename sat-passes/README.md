@@ -21,6 +21,13 @@ Updated 14:05 local, 2026-08-25, batt 84%
 - **DUR** — pass duration (LOS − AOS)
 - **EL** — maximum elevation in degrees
 
+Rows are styled by pass state:
+
+- **in progress** — white text on a black bar (more than one pass can be
+  highlighted at once)
+- **finished** — subdued grey text, kept for `RECENT_PASS_RETENTION_S` after LOS
+- **upcoming** — plain black text
+
 ## Setup
 
 ### 1. Get API keys
@@ -67,6 +74,7 @@ Values are read in code via `os.getenv()`.
 | `LATITUDE` / `LONGITUDE` / `ALTITUDE_KM` | Observer location (strings) |
 | `CACHE_TIMEOUT_S` | Seconds before cached N2YO results are refreshed (default `600`) |
 | `CACHE_LOS_RETENTION_S` | Seconds to retain passes after LOS (default `1800`) |
+| `RECENT_PASS_RETENTION_S` | Seconds a finished pass stays on the display (default `900`; keep ≤ `CACHE_LOS_RETENTION_S`) |
 
 DST transitions are handled automatically via Adafruit IO's timezone database —
 no manual offset ever needed.
@@ -83,6 +91,7 @@ Copy to the `CIRCUITPY/` root:
 ```
 code.py
 n2yo.py
+passes.py
 satellites.py
 settings.toml     ← yours, not the example
 ```
@@ -120,7 +129,10 @@ python -m unittest discover -s tests -v
 
 ## Power
 
-The MagTag deep-sleeps between refreshes (`REFRESH_INTERVAL_S`, default 1 hour).
+The MagTag deep-sleeps between refreshes. Instead of a fixed cycle, it wakes at
+the next moment the display would change — the AOS of a shown pass, its LOS, or
+the moment it ages out of the list — across all visible passes, clamped to
+between 1 minute and `REFRESH_INTERVAL_S` (default 1 hour).
 On a 350 mAh LiPo this should run for days between charges. The bottom status
 line shows an approximate battery percentage based on the MagTag battery voltage.
 
@@ -130,6 +142,7 @@ line shows an approximate battery percentage based on the MagTag battery voltage
 | ----------------------- | ---------------- | ---------------------------- |
 | `code.py`               | ✅ CIRCUITPY/    | Main entry point             |
 | `n2yo.py`               | ✅ CIRCUITPY/    | N2YO API client and cache    |
+| `passes.py`             | ✅ CIRCUITPY/    | Pass selection and wake times |
 | `satellites.py`         | ✅ CIRCUITPY/    | Satellite list               |
 | `settings.toml`         | ✅ CIRCUITPY/    | Credentials — not in git     |
 | `settings.toml.example` | repo only        | Template for settings.toml   |
