@@ -34,6 +34,12 @@ from status import (
     status_lines,
     unpack_utc_offset,
 )
+from timekeeping import (
+    TIME_SERVICE_FORMAT,
+    parse_time_service_reply,
+    unix_to_date,
+    unix_to_hhmm,
+)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -71,96 +77,58 @@ BUTTON_RELEASE_WAIT_S = 5       # give up waiting for a stuck button after this
 
 # ── Time tracking (set by sync_time) ─────────────────────────────────────────
 
-_boot_unix  = 0     # Unix timestamp captured at last sync
-_boot_mono  = 0.0   # time.monotonic() captured at last sync
-_utc_offset = 0     # DST-aware UTC offset in seconds (e.g. -21600 for MDT)
+_boot_unix     = 0  # Unix timestamp captured at last sync
+_boot_ticks_ns = 0  # time.monotonic_ns() captured at last sync
+_utc_offset    = 0  # DST-aware UTC offset in seconds (e.g. -21600 for MDT)
 
 
 def now_unix():
-    """Current Unix timestamp, derived from boot reference + monotonic elapsed."""
-    return int(_boot_unix + (time.monotonic() - _boot_mono))
+    """Current Unix timestamp, derived from sync reference + elapsed ticks."""
+    if _boot_unix == 0:
+        return 0
+    return _boot_unix + (time.monotonic_ns() - _boot_ticks_ns) // 1000000000
+
+
+def clock_age_s():
+    """Seconds since the current wall-clock reference was synced."""
+    if _boot_unix == 0:
+        return 0
+    return (time.monotonic_ns() - _boot_ticks_ns) // 1000000000
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def sync_time(magtag):
     """
-    Sync via magtag.network.get_local_time(), which uses the Adafruit IO
-    strftime endpoint. Reads ADAFRUIT_AIO_USERNAME / ADAFRUIT_AIO_KEY from
-    settings.toml automatically. The reply includes the DST-aware UTC offset
-    (%z), so no local DST math is needed.
-    Reply format: "YYYY-MM-DD HH:MM:SS.mmm yday wday +HHMM TZabbr"
+    Sync via the Adafruit IO strftime endpoint.
+
+    Unix time (%s) is requested directly so local calendar fields never need
+    to be converted back to UTC on the device. The reply also includes the
+    DST-aware UTC offset (%z).
     """
-    global _boot_unix, _boot_mono, _utc_offset
+    global _boot_unix, _boot_ticks_ns, _utc_offset
     print("Syncing time via Adafruit IO...")
     try:
         timezone = os.getenv("TIMEZONE", "UTC")
-        reply = magtag.network.get_local_time(location=timezone)
-        # e.g. "2026-08-25 10:51:00.000 237 2 -0600 MDT"
-        fields = reply.split(" ")
+        reply = magtag.network.get_strftime(
+            TIME_SERVICE_FORMAT, location=timezone
+        )
+        _boot_unix, _utc_offset, tz_abbr = parse_time_service_reply(reply)
+        _boot_ticks_ns = time.monotonic_ns()
 
-        # Parse DST-aware UTC offset from %z field (e.g. "-0600")
-        tz_str = fields[4]
-        sign = -1 if tz_str[0] == "-" else 1
-        _utc_offset = sign * (int(tz_str[1:3]) * 3600 + int(tz_str[3:5]) * 60)
-
-        # Parse local datetime components
-        y, mo, d = (int(x) for x in fields[0].split("-"))
-        h, mi, s = (int(x) for x in fields[1].split(".")[0].split(":"))
-
-        # Convert local time-of-day to UTC, handling midnight rollover
-        utc_tod = h * 3600 + mi * 60 + s - _utc_offset
-        day_adj = 0
-        if utc_tod >= 86400:
-            utc_tod -= 86400; day_adj = 1
-        elif utc_tod < 0:
-            utc_tod += 86400; day_adj = -1
-
-        # Days since Unix epoch via Julian Day Number (Gregorian calendar).
-        # Avoids time.time() entirely — no CircuitPython epoch ambiguity.
-        a = (14 - mo) // 12
-        yy = y + 4800 - a
-        m = mo + 12 * a - 3
-        jdn = (d + day_adj + (153 * m + 2) // 5
-               + 365 * yy + yy // 4 - yy // 100 + yy // 400 - 32045)
-        _boot_unix = (jdn - 2440588) * 86400 + utc_tod
-        _boot_mono = time.monotonic()
-
-        tz_abbr = fields[5] if len(fields) > 5 else tz_str
-        print(f"  Synced: {tz_abbr} (UTC{_utc_offset // 3600:+d}), unix={_boot_unix}")
+        offset_sign = "+" if _utc_offset >= 0 else "-"
+        offset_abs = abs(_utc_offset)
+        offset_text = (
+            f"{offset_sign}{offset_abs // 3600:02d}:"
+            f"{(offset_abs % 3600) // 60:02d}"
+        )
+        print(
+            f"  Synced: {tz_abbr} (UTC{offset_text}), "
+            f"unix={_boot_unix}, ticks_ns={_boot_ticks_ns}"
+        )
     except Exception as e:
         print(f"  Time sync failed: {e}")
     return _utc_offset
-
-
-def unix_to_hhmm(unix_ts, utc_offset_s):
-    """
-    Convert a UTC Unix timestamp to a local HH:MM string.
-    Pure modular arithmetic — no CircuitPython epoch assumptions.
-    """
-    tod = (unix_ts + utc_offset_s) % 86400
-    return f"{tod // 3600:02d}:{(tod % 3600) // 60:02d}"
-
-
-def unix_to_date(unix_ts, utc_offset_s):
-    """
-    Convert a UTC Unix timestamp to a local YYYY-MM-DD string.
-    Uses the Julian Day Number inverse formula — epoch-agnostic.
-    Handy on e-ink: the persistent display shows the last-updated date,
-    making it obvious if the device has been off for a while.
-    """
-    days  = (unix_ts + utc_offset_s) // 86400   # local days since Unix epoch
-    jdn   = days + 2440588                       # Julian Day Number
-    a = jdn + 32044
-    b = (4 * a + 3) // 146097
-    c = a - (146097 * b) // 4
-    d = (4 * c + 3) // 1461
-    e = c - (1461 * d) // 4
-    m = (5 * e + 2) // 153
-    day   = e - (153 * m + 2) // 5 + 1
-    month = m + 3 - 12 * (m // 10)
-    year  = 100 * b + d - 4800 + m // 10
-    return f"{year}-{month:02d}-{day:02d}"
 
 
 def format_duration(start_ts, end_ts):
@@ -191,7 +159,10 @@ def build_display_rows(all_passes, utc_offset_s):
     also shows what just happened, not only what is coming up.
     """
     cur = now_unix()
-    print(f"Build display: total={len(all_passes)}, now_unix={cur}")
+    print(
+        f"Build display: total={len(all_passes)}, "
+        f"now_unix={cur}, clock_age_s={clock_age_s()}"
+    )
     if all_passes:
         earliest = min(p["aos"] for p in all_passes)
         latest   = max(p["aos"] for p in all_passes)
