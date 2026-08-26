@@ -18,6 +18,11 @@ ADAFRUIT_AIO_KEY = "YOUR_AIO_KEY"
 # Free registration at https://www.n2yo.com/api/ (100 radiopasses transactions/hour).
 N2YO_API_KEY = "YOUR_N2YO_API_KEY"
 
+# ── Pass cache ────────────────────────────────────────────────────────────────
+# Re-query N2YO after 10 minutes; keep passes until 30 minutes after LOS.
+CACHE_TIMEOUT_S = "600"
+CACHE_LOS_RETENTION_S = "1800"
+
 # ── Observer location ─────────────────────────────────────────────────────────
 LATITUDE = "39.9"
 LONGITUDE = "-105.1"

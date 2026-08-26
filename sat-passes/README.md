@@ -65,9 +65,16 @@ Values are read in code via `os.getenv()`.
 | `ADAFRUIT_AIO_USERNAME` / `ADAFRUIT_AIO_KEY` | Adafruit IO credentials |
 | `TIMEZONE` | IANA timezone name (e.g. `"America/Denver"`) |
 | `LATITUDE` / `LONGITUDE` / `ALTITUDE_KM` | Observer location (strings) |
+| `CACHE_TIMEOUT_S` | Seconds before cached N2YO results are refreshed (default `600`) |
+| `CACHE_LOS_RETENTION_S` | Seconds to retain passes after LOS (default `1800`) |
 
 DST transitions are handled automatically via Adafruit IO's timezone database —
 no manual offset ever needed.
+
+N2YO results are cached in `/n2yo_cache.json` on the device. Fresh results avoid
+API requests, while stale results remain available if a refresh fails or is rate
+limited. Successful refreshes merge new passes with cached passes and discard
+entries after the configured post-LOS retention period.
 
 ### 4. Deploy to MagTag
 
