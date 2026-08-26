@@ -282,7 +282,7 @@ def build_status_lines(unix_ts, utc_offset_s, battery_pct, rate_limited=False):
     Both the timestamp and the offset are needed to render a local time, so an
     unknown either way shows as "Updated unknown".
     """
-    if not unix_ts or utc_offset_s is None:
+    if not unix_ts or utc_offset_s is None:      # 0 means "never queried"
         return status_lines(None, None, battery_pct, rate_limited)
     return status_lines(
         unix_to_hhmm(unix_ts, utc_offset_s),
