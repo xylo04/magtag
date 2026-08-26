@@ -131,6 +131,7 @@ entries after the configured post-LOS retention period.
 Copy to the `CIRCUITPY/` root:
 
 ```
+boot.py
 code.py
 n2yo.py
 passes.py
@@ -138,6 +139,10 @@ satellites.py
 status.py
 settings.toml     ← yours, not the example
 ```
+
+`boot.py` remounts the device filesystem writable for CircuitPython so the
+sketch can update `/n2yo_cache.json`. While this is enabled, avoid editing the
+`CIRCUITPY` drive from the host computer at the same time the sketch is running.
 
 ## Customise satellites
 
@@ -184,6 +189,7 @@ shows an approximate battery percentage based on the MagTag battery voltage.
 
 | File                    | Lives on device? | Notes                        |
 | ----------------------- | ---------------- | ---------------------------- |
+| `boot.py`               | ✅ CIRCUITPY/    | Makes on-device cache writes possible |
 | `code.py`               | ✅ CIRCUITPY/    | Main entry point             |
 | `n2yo.py`               | ✅ CIRCUITPY/    | N2YO API client and cache    |
 | `passes.py`             | ✅ CIRCUITPY/    | Pass selection and wake times |
