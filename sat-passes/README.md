@@ -65,9 +65,16 @@ Values are read in code via `os.getenv()`.
 | `ADAFRUIT_AIO_USERNAME` / `ADAFRUIT_AIO_KEY` | Adafruit IO credentials |
 | `TIMEZONE` | IANA timezone name (e.g. `"America/Denver"`) |
 | `LATITUDE` / `LONGITUDE` / `ALTITUDE_KM` | Observer location (strings) |
+| `CACHE_TIMEOUT_S` | Seconds before cached N2YO results are refreshed (default `600`) |
+| `CACHE_LOS_RETENTION_S` | Seconds to retain passes after LOS (default `1800`) |
 
 DST transitions are handled automatically via Adafruit IO's timezone database —
 no manual offset ever needed.
+
+N2YO results are cached in `/n2yo_cache.json` on the device. Fresh results avoid
+API requests, while stale results remain available if a refresh fails or is rate
+limited. Successful refreshes merge new passes with cached passes and discard
+entries after the configured post-LOS retention period.
 
 ### 4. Deploy to MagTag
 
@@ -75,6 +82,7 @@ Copy to the `CIRCUITPY/` root:
 
 ```
 code.py
+n2yo.py
 satellites.py
 settings.toml     ← yours, not the example
 ```
@@ -101,6 +109,15 @@ Common ham radio satellites:
 | AO-85 (Fox-1A)   | 40967 | FM          |
 | XW-2A            | 40903 | Linear      |
 
+## Tests
+
+The N2YO client and cache tests run on standard Python without CircuitPython
+hardware libraries:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Power
 
 The MagTag deep-sleeps between refreshes (`REFRESH_INTERVAL_S`, default 1 hour).
@@ -112,6 +129,7 @@ line shows an approximate battery percentage based on the MagTag battery voltage
 | File                    | Lives on device? | Notes                        |
 | ----------------------- | ---------------- | ---------------------------- |
 | `code.py`               | ✅ CIRCUITPY/    | Main entry point             |
+| `n2yo.py`               | ✅ CIRCUITPY/    | N2YO API client and cache    |
 | `satellites.py`         | ✅ CIRCUITPY/    | Satellite list               |
 | `settings.toml`         | ✅ CIRCUITPY/    | Credentials — not in git     |
 | `settings.toml.example` | repo only        | Template for settings.toml   |

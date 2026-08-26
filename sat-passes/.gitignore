@@ -1,3 +1,4 @@
 # Never commit real credentials
 secrets.py
 settings.toml
+n2yo_cache.json

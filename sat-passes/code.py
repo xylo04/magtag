@@ -17,6 +17,7 @@ import os
 import time
 import terminalio
 from adafruit_magtag.magtag import MagTag
+from n2yo import N2YOClient
 from satellites import SATELLITES
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -25,8 +26,6 @@ REFRESH_INTERVAL_S = 3600       # re-fetch from N2YO every hour
 DAYS_AHEAD        = 1           # how many days of passes to request
 MIN_ELEVATION_DEG = 10          # ignore passes that barely peek over horizon
 MAX_PASSES_SHOWN  = 4           # number of pass rows on display
-
-N2YO_BASE = "https://api.n2yo.com/rest/v1/satellite"
 
 BATTERY_EMPTY_V = 3.20          # approximate 0% for a single-cell LiPo
 BATTERY_FULL_V  = 4.20          # approximate 100% for a single-cell LiPo
@@ -93,56 +92,6 @@ def sync_time(magtag):
     except Exception as e:
         print(f"  Time sync failed: {e}")
     return _utc_offset
-
-
-def n2yo_url(norad_id):
-    """Build a radiopasses URL for the given NORAD ID."""
-    lat = os.getenv("LATITUDE", "0")
-    lon = os.getenv("LONGITUDE", "0")
-    alt = os.getenv("ALTITUDE_KM", "0")
-    key = os.getenv("N2YO_API_KEY", "")
-    return (
-        f"{N2YO_BASE}/radiopasses/{norad_id}"
-        f"/{lat}/{lon}/{alt}"
-        f"/{DAYS_AHEAD}/{MIN_ELEVATION_DEG}"
-        "/&apiKey=" + key
-    )
-
-
-def fetch_passes(magtag, norad_id, label):
-    """
-    Return list of pass dicts {label, aos, los, max_el}, or None if the
-    N2YO API signals a rate-limit error (caller should circuit-break).
-    """
-    url = n2yo_url(norad_id)
-    try:
-        response = magtag.network.fetch(url)
-        data = response.json()
-        response.close()
-    except Exception as e:
-        print(f"  fetch error for {label}: {e}")
-        return []
-
-    if "error" in data:
-        err = data["error"]
-        print(f"  {label}: API error: {err}")
-        # Rate-limit errors contain "transaction" or "exceeded"; signal caller
-        # to stop making further requests this cycle.
-        if "transaction" in err or "exceeded" in err.lower():
-            return None
-        return []
-
-    raw = data.get("passes") or []
-    print(f"  {label}: {len(raw)} passes")
-    passes = []
-    for p in raw:
-        passes.append({
-            "label":  label,
-            "aos":    p["startUTC"],   # Unix timestamp
-            "los":    p["endUTC"],
-            "max_el": p["maxEl"],
-        })
-    return passes
 
 
 def unix_to_hhmm(unix_ts, utc_offset_s):
@@ -271,25 +220,24 @@ def main():
     # ── Time sync ─────────────────────────────────────────────────────────────
     utc_offset_s = sync_time(magtag)
 
-    # ── Fetch passes (with rate-limit circuit-breaker) ────────────────────────
+    # ── Fetch passes (with cache and rate-limit circuit-breaker) ──────────────
     magtag.set_text(
         "Fetching passes...", index=2 + MAX_PASSES_SHOWN, auto_refresh=False
     )
 
     all_passes = []
-    rate_limited = False
+    n2yo = N2YOClient(
+        magtag.network,
+        now_unix,
+        days_ahead=DAYS_AHEAD,
+        min_elevation_deg=MIN_ELEVATION_DEG,
+    )
     for norad_id, label, _mode in SATELLITES:
-        if rate_limited:
-            print(f"  Skipping {label} (rate limited)")
-            continue
-        print(f"Fetching {label} ({norad_id})...")
-        result = fetch_passes(magtag, norad_id, label)
-        if result is None:
-            rate_limited = True
-            print("  N2YO rate limit hit — skipping remaining satellites this cycle")
-        else:
-            all_passes.extend(result)
-        time.sleep(0.5)
+        all_passes.extend(n2yo.get_passes(norad_id, label))
+        if n2yo.last_request_made:
+            time.sleep(0.5)
+    n2yo.save()
+    rate_limited = n2yo.rate_limited
 
     # ── Render ────────────────────────────────────────────────────────────────
     lines = build_display_lines(all_passes, utc_offset_s)
