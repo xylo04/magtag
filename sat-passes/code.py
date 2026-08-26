@@ -15,9 +15,9 @@ All settings are read from settings.toml via os.getenv() (CircuitPython 8+ idiom
 
 import os
 import time
-import json
 import terminalio
 from adafruit_magtag.magtag import MagTag
+from n2yo import N2YOClient
 from satellites import SATELLITES
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -26,11 +26,6 @@ REFRESH_INTERVAL_S = 3600       # re-fetch from N2YO every hour
 DAYS_AHEAD        = 1           # how many days of passes to request
 MIN_ELEVATION_DEG = 10          # ignore passes that barely peek over horizon
 MAX_PASSES_SHOWN  = 4           # number of pass rows on display
-
-N2YO_BASE = "https://api.n2yo.com/rest/v1/satellite"
-CACHE_FILE = "/n2yo_cache.json"
-CACHE_TIMEOUT_S = int(os.getenv("CACHE_TIMEOUT_S", "600"))
-CACHE_LOS_RETENTION_S = int(os.getenv("CACHE_LOS_RETENTION_S", "1800"))
 
 BATTERY_EMPTY_V = 3.20          # approximate 0% for a single-cell LiPo
 BATTERY_FULL_V  = 4.20          # approximate 100% for a single-cell LiPo
@@ -97,89 +92,6 @@ def sync_time(magtag):
     except Exception as e:
         print(f"  Time sync failed: {e}")
     return _utc_offset
-
-
-def n2yo_url(norad_id):
-    """Build a radiopasses URL for the given NORAD ID."""
-    lat = os.getenv("LATITUDE", "0")
-    lon = os.getenv("LONGITUDE", "0")
-    alt = os.getenv("ALTITUDE_KM", "0")
-    key = os.getenv("N2YO_API_KEY", "")
-    return (
-        f"{N2YO_BASE}/radiopasses/{norad_id}"
-        f"/{lat}/{lon}/{alt}"
-        f"/{DAYS_AHEAD}/{MIN_ELEVATION_DEG}"
-        "/&apiKey=" + key
-    )
-
-
-def load_pass_cache(path=CACHE_FILE):
-    """Load the pass cache from flash, returning an empty cache on any error."""
-    try:
-        with open(path, "r") as cache_file:
-            cache = json.load(cache_file)
-        if not isinstance(cache.get("satellites"), dict):
-            raise ValueError("invalid cache format")
-        return cache
-    except (OSError, ValueError, AttributeError) as e:
-        print(f"  cache read failed: {e}")
-        return {"satellites": {}}
-
-
-def save_pass_cache(cache, path=CACHE_FILE):
-    """Persist the pass cache to flash."""
-    try:
-        with open(path, "w") as cache_file:
-            json.dump(cache, cache_file)
-    except OSError as e:
-        print(f"  cache write failed: {e}")
-
-
-def merge_cached_passes(cached, fetched, cur):
-    """Merge passes by identity and discard entries past the LOS retention time."""
-    merged = {}
-    for p in cached + fetched:
-        try:
-            if p["los"] + CACHE_LOS_RETENTION_S >= cur:
-                merged[(p["label"], p["aos"], p["los"])] = p
-        except (KeyError, TypeError):
-            print("  ignoring invalid cached pass")
-    return list(merged.values())
-
-
-def fetch_passes(magtag, norad_id, label):
-    """
-    Return pass dicts, None for rate limiting, or False for a fetch failure.
-    """
-    url = n2yo_url(norad_id)
-    try:
-        response = magtag.network.fetch(url)
-        data = response.json()
-        response.close()
-    except Exception as e:
-        print(f"  fetch error for {label}: {e}")
-        return False
-
-    if "error" in data:
-        err = data["error"]
-        print(f"  {label}: API error: {err}")
-        # Rate-limit errors contain "transaction" or "exceeded"; signal caller
-        # to stop making further requests this cycle.
-        if "transaction" in err or "exceeded" in err.lower():
-            return None
-        return []
-
-    raw = data.get("passes") or []
-    print(f"  {label}: {len(raw)} passes")
-    passes = []
-    for p in raw:
-        passes.append({
-            "label":  label,
-            "aos":    p["startUTC"],   # Unix timestamp
-            "los":    p["endUTC"],
-            "max_el": p["maxEl"],
-        })
-    return passes
 
 
 def unix_to_hhmm(unix_ts, utc_offset_s):
@@ -314,60 +226,18 @@ def main():
     )
 
     all_passes = []
-    rate_limited = False
-    cache = load_pass_cache()
-    cache_dirty = False
-    cur = now_unix()
+    n2yo = N2YOClient(
+        magtag.network,
+        now_unix,
+        days_ahead=DAYS_AHEAD,
+        min_elevation_deg=MIN_ELEVATION_DEG,
+    )
     for norad_id, label, _mode in SATELLITES:
-        cache_key = str(norad_id)
-        entry = cache["satellites"].get(cache_key, {})
-        if not isinstance(entry, dict):
-            entry = {}
-        cached_data = entry.get("passes", [])
-        if not isinstance(cached_data, list):
-            cached_data = []
-        cached = merge_cached_passes(cached_data, [], cur)
-        fetched_at = entry.get("fetched_at", 0)
-        if not isinstance(fetched_at, (int, float)):
-            fetched_at = 0
-        if cache_key in cache["satellites"] and cached != cached_data:
-            cache["satellites"][cache_key] = {
-                "fetched_at": fetched_at,
-                "passes": cached,
-            }
-            cache_dirty = True
-        cache_age = cur - fetched_at
-
-        if 0 <= cache_age < CACHE_TIMEOUT_S:
-            print(f"  {label}: using cache ({cache_age}s old)")
-            all_passes.extend(cached)
-            continue
-
-        if rate_limited:
-            print(f"  Skipping {label} API request (rate limited); using stale cache")
-            all_passes.extend(cached)
-            continue
-
-        print(f"Fetching {label} ({norad_id})...")
-        result = fetch_passes(magtag, norad_id, label)
-        if result is None:
-            rate_limited = True
-            print("  N2YO rate limit hit — skipping remaining satellites this cycle")
-            all_passes.extend(cached)
-        elif result is False:
-            all_passes.extend(cached)
-        else:
-            merged = merge_cached_passes(cached, result, cur)
-            cache["satellites"][cache_key] = {
-                "fetched_at": cur,
-                "passes": merged,
-            }
-            cache_dirty = True
-            all_passes.extend(merged)
-        time.sleep(0.5)
-
-    if cache_dirty:
-        save_pass_cache(cache)
+        all_passes.extend(n2yo.get_passes(norad_id, label))
+        if n2yo.last_request_made:
+            time.sleep(0.5)
+    n2yo.save()
+    rate_limited = n2yo.rate_limited
 
     # ── Render ────────────────────────────────────────────────────────────────
     lines = build_display_lines(all_passes, utc_offset_s)

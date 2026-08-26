@@ -82,6 +82,7 @@ Copy to the `CIRCUITPY/` root:
 
 ```
 code.py
+n2yo.py
 satellites.py
 settings.toml     ← yours, not the example
 ```
@@ -108,6 +109,15 @@ Common ham radio satellites:
 | AO-85 (Fox-1A)   | 40967 | FM          |
 | XW-2A            | 40903 | Linear      |
 
+## Tests
+
+The N2YO client and cache tests run on standard Python without CircuitPython
+hardware libraries:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Power
 
 The MagTag deep-sleeps between refreshes (`REFRESH_INTERVAL_S`, default 1 hour).
@@ -119,6 +129,7 @@ line shows an approximate battery percentage based on the MagTag battery voltage
 | File                    | Lives on device? | Notes                        |
 | ----------------------- | ---------------- | ---------------------------- |
 | `code.py`               | ✅ CIRCUITPY/    | Main entry point             |
+| `n2yo.py`               | ✅ CIRCUITPY/    | N2YO API client and cache    |
 | `satellites.py`         | ✅ CIRCUITPY/    | Satellite list               |
 | `settings.toml`         | ✅ CIRCUITPY/    | Credentials — not in git     |
 | `settings.toml.example` | repo only        | Template for settings.toml   |
