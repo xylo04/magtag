@@ -15,17 +15,32 @@ All settings are read from settings.toml via os.getenv() (CircuitPython 8+ idiom
 
 import os
 import time
+import displayio
 import terminalio
+import vectorio
 from adafruit_magtag.magtag import MagTag
 from n2yo import N2YOClient
+from passes import ACTIVE, RECENT, next_wake_s, select_passes
 from satellites import SATELLITES
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-REFRESH_INTERVAL_S = 3600       # re-fetch from N2YO every hour
+REFRESH_INTERVAL_S = 3600       # longest nap: re-fetch from N2YO every hour
+MIN_SLEEP_S       = 60          # shortest nap, so we don't thrash the e-ink
 DAYS_AHEAD        = 1           # how many days of passes to request
 MIN_ELEVATION_DEG = 10          # ignore passes that barely peek over horizon
 MAX_PASSES_SHOWN  = 4           # number of pass rows on display
+
+# How long a finished pass keeps its row before it drops off the display.
+RECENT_RETENTION_S = int(os.getenv("RECENT_PASS_RETENTION_S", "900"))
+
+ROW_HEIGHT = 24                 # vertical pitch between pass rows
+ROW_TOP    = 26                 # baseline (vertical centre) of the first row
+
+COLOR_NORMAL    = 0x000000      # upcoming pass: black on white
+COLOR_ACTIVE    = 0xFFFFFF      # in-progress pass: white on black
+COLOR_RECENT    = 0x555555      # finished pass: subdued grey
+COLOR_HIGHLIGHT = 0x000000      # background fill behind an in-progress pass
 
 BATTERY_EMPTY_V = 3.20          # approximate 0% for a single-cell LiPo
 BATTERY_FULL_V  = 4.20          # approximate 100% for a single-cell LiPo
@@ -153,30 +168,60 @@ def battery_percent(magtag):
     return pct
 
 
-def build_display_lines(all_passes, utc_offset_s):
-    """Sort passes by AOS, take the next MAX_PASSES_SHOWN, return display strings."""
+def build_display_rows(all_passes, utc_offset_s):
+    """
+    Return ``MAX_PASSES_SHOWN`` (line, state, pass) tuples ready for rendering.
+
+    In-progress and recently finished passes keep their row, so the display
+    also shows what just happened, not only what is coming up.
+    """
     cur = now_unix()
     print(f"Build display: total={len(all_passes)}, now_unix={cur}")
     if all_passes:
         earliest = min(p["aos"] for p in all_passes)
         latest   = max(p["aos"] for p in all_passes)
         print(f"  AOS range: {earliest}..{latest} (delta_first={earliest - cur}s)")
-    upcoming = [p for p in all_passes if p["aos"] > cur]
-    upcoming.sort(key=lambda p: p["aos"])
-    upcoming = upcoming[:MAX_PASSES_SHOWN]
-    print(f"  Upcoming: {len(upcoming)}")
+    visible = select_passes(all_passes, cur, MAX_PASSES_SHOWN, RECENT_RETENTION_S)
+    print(f"  Visible: {len(visible)}")
 
-    lines = []
-    for p in upcoming:
-        hhmm = unix_to_hhmm(p["aos"], utc_offset_s)
-        dur  = format_duration(p["aos"], p["los"])
-        el   = int(p["max_el"])
-        lines.append(f"{p['label']:<6} {hhmm}  {dur:>7}  {el:>3}")
+    rows = []
+    for pass_info, state in visible:
+        hhmm = unix_to_hhmm(pass_info["aos"], utc_offset_s)
+        dur  = format_duration(pass_info["aos"], pass_info["los"])
+        el   = int(pass_info["max_el"])
+        rows.append(
+            (f"{pass_info['label']:<6} {hhmm}  {dur:>7}  {el:>3}", state, pass_info)
+        )
 
-    while len(lines) < MAX_PASSES_SHOWN:
-        lines.append("")
+    while len(rows) < MAX_PASSES_SHOWN:
+        rows.append(("", None, None))
 
-    return lines
+    return rows
+
+
+def add_row_highlights(magtag):
+    """
+    Create one hidden black bar per pass row, behind the text labels.
+
+    They are added before any labels so the labels draw on top of them; the
+    bars are then un-hidden for whichever rows are currently in progress.
+    """
+    palette = displayio.Palette(1)
+    palette[0] = COLOR_HIGHLIGHT
+    highlights = []
+    for i in range(MAX_PASSES_SHOWN):
+        group = displayio.Group()
+        group.append(vectorio.Rectangle(
+            pixel_shader=palette,
+            width=magtag.graphics.display.width,
+            height=ROW_HEIGHT - 4,
+            x=0,
+            y=ROW_TOP + i * ROW_HEIGHT - (ROW_HEIGHT - 4) // 2,
+        ))
+        group.hidden = True
+        magtag.graphics.root_group.append(group)
+        highlights.append(group)
+    return highlights
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -186,6 +231,8 @@ def main():
     magtag.network.connect()
 
     # ── Layout ────────────────────────────────────────────────────────────────
+    highlights = add_row_highlights(magtag)
+
     magtag.add_text(
         text_position=(4, 4),
         text_scale=1,
@@ -204,7 +251,7 @@ def main():
 
     for i in range(MAX_PASSES_SHOWN):
         magtag.add_text(
-            text_position=(4, 26 + i * 24),
+            text_position=(4, ROW_TOP + i * ROW_HEIGHT),
             text_scale=1,
             text_color=0x000000,
             text_font=terminalio.FONT,
@@ -240,12 +287,20 @@ def main():
     rate_limited = n2yo.rate_limited
 
     # ── Render ────────────────────────────────────────────────────────────────
-    lines = build_display_lines(all_passes, utc_offset_s)
+    rows = build_display_rows(all_passes, utc_offset_s)
 
-    print(f"Rendering {len(lines)} rows...")
-    for i, line in enumerate(lines):
-        print(f"  row {i}: {repr(line)}")
+    print(f"Rendering {len(rows)} rows...")
+    for i, (line, state, _pass_info) in enumerate(rows):
+        print(f"  row {i}: {repr(line)} ({state})")
         magtag.set_text(line, index=2 + i, auto_refresh=False)
+        if state == ACTIVE:
+            color = COLOR_ACTIVE
+        elif state == RECENT:
+            color = COLOR_RECENT
+        else:
+            color = COLOR_NORMAL
+        magtag.set_text_color(color, index=2 + i)
+        highlights[i].hidden = state != ACTIVE
 
     now_str  = unix_to_hhmm(now_unix(), utc_offset_s)
     date_str = unix_to_date(now_unix(), utc_offset_s)
@@ -257,7 +312,16 @@ def main():
     print(f"  status: {repr(status)}")
     magtag.set_text(status, index=2 + MAX_PASSES_SHOWN, auto_refresh=True)
 
-    sleep_s = 600 if rate_limited else REFRESH_INTERVAL_S
+    if rate_limited:
+        sleep_s = 600
+    else:
+        sleep_s = next_wake_s(
+            [(p, state) for _line, state, p in rows if p is not None],
+            now_unix(),
+            RECENT_RETENTION_S,
+            REFRESH_INTERVAL_S,
+            min_sleep_s=MIN_SLEEP_S,
+        )
     print(f"Sleeping for {sleep_s}s...")
     magtag.exit_and_deep_sleep(sleep_s)
 
