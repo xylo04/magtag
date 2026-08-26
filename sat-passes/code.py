@@ -15,6 +15,8 @@ All settings are read from settings.toml via os.getenv() (CircuitPython 8+ idiom
 
 import os
 import time
+import alarm
+import board
 import displayio
 import terminalio
 import vectorio
@@ -22,6 +24,7 @@ from adafruit_magtag.magtag import MagTag
 from n2yo import N2YOClient
 from passes import ACTIVE, RECENT, next_wake_s, select_passes
 from satellites import SATELLITES
+from status import battery_percent, status_lines
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -29,12 +32,16 @@ REFRESH_INTERVAL_S = 3600       # longest nap: re-fetch from N2YO every hour
 MIN_SLEEP_S       = 60          # shortest nap, so we don't thrash the e-ink
 DAYS_AHEAD        = 1           # how many days of passes to request
 MIN_ELEVATION_DEG = 10          # ignore passes that barely peek over horizon
-MAX_PASSES_SHOWN  = 4           # number of pass rows on display
+MAX_PASSES_SHOWN  = 5           # number of pass rows on display
 
 # How long a finished pass keeps its row before it drops off the display.
 RECENT_RETENTION_S = int(os.getenv("RECENT_PASS_RETENTION_S", "900"))
 
-ROW_HEIGHT = 24                 # vertical pitch between pass rows
+# How long the status page stays up after a button press before the pass list
+# comes back.
+STATUS_PAGE_DURATION_S = int(os.getenv("STATUS_PAGE_DURATION_S", "15"))
+
+ROW_HEIGHT = 23                 # vertical pitch between pass rows
 ROW_TOP    = 26                 # baseline (vertical centre) of the first row
 
 COLOR_NORMAL    = 0x000000      # upcoming pass: black on white
@@ -42,8 +49,11 @@ COLOR_ACTIVE    = 0xFFFFFF      # in-progress pass: white on black
 COLOR_RECENT    = 0x555555      # finished pass: subdued grey
 COLOR_HIGHLIGHT = 0x000000      # background fill behind an in-progress pass
 
-BATTERY_EMPTY_V = 3.20          # approximate 0% for a single-cell LiPo
-BATTERY_FULL_V  = 4.20          # approximate 100% for a single-cell LiPo
+STATUS_INDEX = 2 + MAX_PASSES_SHOWN     # text index of the status page label
+
+# Buttons that summon the status page: all four direction arrows.
+BUTTON_PINS = (board.BUTTON_A, board.BUTTON_B, board.BUTTON_C, board.BUTTON_D)
+BUTTON_RELEASE_WAIT_S = 5       # give up waiting for a stuck button after this
 
 # ── Time tracking (set by sync_time) ─────────────────────────────────────────
 
@@ -145,7 +155,7 @@ def format_duration(start_ts, end_ts):
     return f"{dur // 60}m{dur % 60:02d}s"
 
 
-def battery_percent(magtag):
+def read_battery_percent(magtag):
     """Return an approximate battery percentage, or None if unavailable."""
     try:
         battery_v = magtag.peripherals.battery
@@ -153,18 +163,9 @@ def battery_percent(magtag):
         print(f"  battery read failed: {e}")
         return None
 
-    if battery_v is None:
-        return None
-
-    pct = int(
-        ((battery_v - BATTERY_EMPTY_V) / (BATTERY_FULL_V - BATTERY_EMPTY_V)) * 100
-        + 0.5
-    )
-    if pct < 0:
-        pct = 0
-    elif pct > 100:
-        pct = 100
-    print(f"  battery: {battery_v:.2f}V ({pct}%)")
+    pct = battery_percent(battery_v)
+    if pct is not None:
+        print(f"  battery: {battery_v:.2f}V ({pct}%)")
     return pct
 
 
@@ -224,10 +225,81 @@ def add_row_highlights(magtag):
     return highlights
 
 
+def woke_from_button():
+    """True when this boot was caused by a button press rather than a timer."""
+    try:
+        return isinstance(alarm.wake_alarm, alarm.pin.PinAlarm)
+    except AttributeError:
+        return False
+
+
+def render_passes(magtag, rows, highlights):
+    """Draw the main page: the pass list, with the status page hidden."""
+    magtag.set_text("SAT    TIME    DUR    EL", index=0, auto_refresh=False)
+    magtag.set_text("-" * 34, index=1, auto_refresh=False)
+    magtag.set_text("", index=STATUS_INDEX, auto_refresh=False)
+
+    print(f"Rendering {len(rows)} rows...")
+    for i, (line, state, _pass_info) in enumerate(rows):
+        print(f"  row {i}: {repr(line)} ({state})")
+        magtag.set_text(line, index=2 + i, auto_refresh=False)
+        if state == ACTIVE:
+            color = COLOR_ACTIVE
+        elif state == RECENT:
+            color = COLOR_RECENT
+        else:
+            color = COLOR_NORMAL
+        magtag.set_text_color(color, index=2 + i)
+        highlights[i].hidden = state != ACTIVE
+
+    magtag.refresh()
+
+
+def render_status(magtag, highlights, lines):
+    """Draw the "last updated and battery state" page on its own."""
+    print(f"Rendering status page: {lines}")
+    magtag.set_text("", index=0, auto_refresh=False)
+    magtag.set_text("", index=1, auto_refresh=False)
+    for i in range(MAX_PASSES_SHOWN):
+        magtag.set_text("", index=2 + i, auto_refresh=False)
+        highlights[i].hidden = True
+    magtag.set_text("\n".join(lines), index=STATUS_INDEX, auto_refresh=False)
+    magtag.refresh()
+
+
+def deep_sleep(magtag, sleep_s):
+    """
+    Deep sleep until ``sleep_s`` elapses or any of the four buttons is pressed.
+
+    The MagTag helper only knows how to set a time alarm, so the button pins are
+    released and the alarm module is used directly (see the note in
+    ``MagTag.exit_and_deep_sleep``).
+    """
+    print(f"Sleeping for {sleep_s}s...")
+    magtag.peripherals.neopixel_disable = True
+    magtag.peripherals.speaker_disable = True
+
+    # A button still held down would trigger its alarm immediately.
+    deadline = time.monotonic() + BUTTON_RELEASE_WAIT_S
+    while magtag.peripherals.any_button_pressed and time.monotonic() < deadline:
+        time.sleep(0.1)
+
+    alarms = [alarm.time.TimeAlarm(monotonic_time=time.monotonic() + sleep_s)]
+    try:
+        magtag.peripherals.deinit()
+        for pin in BUTTON_PINS:
+            alarms.append(alarm.pin.PinAlarm(pin=pin, value=False, pull=True))
+    except (AttributeError, ValueError) as e:
+        print(f"  button wake unavailable ({e}), sleeping on time alone")
+    alarm.exit_and_deep_sleep_until_alarms(*alarms)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     magtag = MagTag()
+    button_wake = woke_from_button()
+    print(f"Boot: button_wake={button_wake}")
     magtag.network.connect()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -239,7 +311,6 @@ def main():
         text_color=0x000000,
         text_font=terminalio.FONT,
     )
-    magtag.set_text("SAT    TIME    DUR    EL", index=0, auto_refresh=False)
 
     magtag.add_text(
         text_position=(4, 16),
@@ -247,7 +318,6 @@ def main():
         text_color=0x000000,
         text_font=terminalio.FONT,
     )
-    magtag.set_text("-" * 34, index=1, auto_refresh=False)
 
     for i in range(MAX_PASSES_SHOWN):
         magtag.add_text(
@@ -258,20 +328,17 @@ def main():
         )
 
     magtag.add_text(
-        text_position=(4, 118),
-        text_scale=1,
+        text_position=(8, 14),
+        text_scale=2,
         text_color=0x000000,
         text_font=terminalio.FONT,
+        text_anchor_point=(0, 0),
     )
 
     # ── Time sync ─────────────────────────────────────────────────────────────
     utc_offset_s = sync_time(magtag)
 
     # ── Fetch passes (with cache and rate-limit circuit-breaker) ──────────────
-    magtag.set_text(
-        "Fetching passes...", index=2 + MAX_PASSES_SHOWN, auto_refresh=False
-    )
-
     all_passes = []
     n2yo = N2YOClient(
         magtag.network,
@@ -289,28 +356,20 @@ def main():
     # ── Render ────────────────────────────────────────────────────────────────
     rows = build_display_rows(all_passes, utc_offset_s)
 
-    print(f"Rendering {len(rows)} rows...")
-    for i, (line, state, _pass_info) in enumerate(rows):
-        print(f"  row {i}: {repr(line)} ({state})")
-        magtag.set_text(line, index=2 + i, auto_refresh=False)
-        if state == ACTIVE:
-            color = COLOR_ACTIVE
-        elif state == RECENT:
-            color = COLOR_RECENT
-        else:
-            color = COLOR_NORMAL
-        magtag.set_text_color(color, index=2 + i)
-        highlights[i].hidden = state != ACTIVE
+    # A button press swaps in the status page for a while; the pass list is
+    # drawn afterwards either way, so the display is left showing passes.
+    if button_wake:
+        updated = now_unix()
+        lines = status_lines(
+            unix_to_hhmm(updated, utc_offset_s),
+            unix_to_date(updated, utc_offset_s),
+            read_battery_percent(magtag),
+            rate_limited,
+        )
+        render_status(magtag, highlights, lines)
+        time.sleep(STATUS_PAGE_DURATION_S)
 
-    now_str  = unix_to_hhmm(now_unix(), utc_offset_s)
-    date_str = unix_to_date(now_unix(), utc_offset_s)
-    batt_pct = battery_percent(magtag)
-    batt_str = f", batt {batt_pct}%" if batt_pct is not None else ""
-    status = f"Updated {now_str} local, {date_str}{batt_str}"
-    if rate_limited:
-        status = f"N2YO rate limited, {date_str}{batt_str}"
-    print(f"  status: {repr(status)}")
-    magtag.set_text(status, index=2 + MAX_PASSES_SHOWN, auto_refresh=True)
+    render_passes(magtag, rows, highlights)
 
     if rate_limited:
         sleep_s = 600
@@ -322,8 +381,7 @@ def main():
             REFRESH_INTERVAL_S,
             min_sleep_s=MIN_SLEEP_S,
         )
-    print(f"Sleeping for {sleep_s}s...")
-    magtag.exit_and_deep_sleep(sleep_s)
+    deep_sleep(magtag, sleep_s)
 
 
 main()

@@ -28,6 +28,9 @@ CACHE_LOS_RETENTION_S = "1800"
 # Keep this at or below CACHE_LOS_RETENTION_S so the passes are still cached.
 RECENT_PASS_RETENTION_S = "900"
 
+# How long the "last updated and battery" page stays up after a button press.
+STATUS_PAGE_DURATION_S = "15"
+
 # ── Observer location ─────────────────────────────────────────────────────────
 LATITUDE = "39.9"
 LONGITUDE = "-105.1"

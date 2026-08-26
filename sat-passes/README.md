@@ -13,7 +13,7 @@ ISS    14:32   9m15s   52
 AO-91  15:07   7m40s   38
 SO-50  16:21   5m02s   14
 FO-29  17:55   8m33s   61
-Updated 14:05 local, 2026-08-25, batt 84%
+AO-92  19:04   6m11s   27
 ```
 
 - **SAT** — satellite short name
@@ -27,6 +27,21 @@ Rows are styled by pass state:
   highlighted at once)
 - **finished** — subdued grey text, kept for `RECENT_PASS_RETENTION_S` after LOS
 - **upcoming** — plain black text
+
+### Status page
+
+Pressing any of the four buttons wakes the MagTag and replaces the pass list
+with a status page for `STATUS_PAGE_DURATION_S` seconds (default 15), then the
+pass list returns:
+
+```
+Updated 14:05
+2026-08-25
+Battery 84%
+```
+
+`N2YO rate limited` is added as a fourth line when the last refresh was blocked
+by the N2YO transaction limit.
 
 ## Setup
 
@@ -75,6 +90,7 @@ Values are read in code via `os.getenv()`.
 | `CACHE_TIMEOUT_S` | Seconds before cached N2YO results are refreshed (default `600`) |
 | `CACHE_LOS_RETENTION_S` | Seconds to retain passes after LOS (default `1800`) |
 | `RECENT_PASS_RETENTION_S` | Seconds a finished pass stays on the display (default `900`; keep ≤ `CACHE_LOS_RETENTION_S`) |
+| `STATUS_PAGE_DURATION_S` | Seconds the status page stays up after a button press (default `15`) |
 
 DST transitions are handled automatically via Adafruit IO's timezone database —
 no manual offset ever needed.
@@ -93,6 +109,7 @@ code.py
 n2yo.py
 passes.py
 satellites.py
+status.py
 settings.toml     ← yours, not the example
 ```
 
@@ -120,8 +137,8 @@ Common ham radio satellites:
 
 ## Tests
 
-The N2YO client and cache tests run on standard Python without CircuitPython
-hardware libraries:
+The N2YO client, pass selection, and status page tests run on standard Python
+without CircuitPython hardware libraries:
 
 ```bash
 python -m unittest discover -s tests -v
@@ -132,9 +149,10 @@ python -m unittest discover -s tests -v
 The MagTag deep-sleeps between refreshes. Instead of a fixed cycle, it wakes at
 the next moment the display would change — the AOS of a shown pass, its LOS, or
 the moment it ages out of the list — across all visible passes, clamped to
-between 1 minute and `REFRESH_INTERVAL_S` (default 1 hour).
-On a 350 mAh LiPo this should run for days between charges. The bottom status
-line shows an approximate battery percentage based on the MagTag battery voltage.
+between 1 minute and `REFRESH_INTERVAL_S` (default 1 hour). A press on any of
+the four buttons also wakes it, to show the status page.
+On a 350 mAh LiPo this should run for days between charges. The status page
+shows an approximate battery percentage based on the MagTag battery voltage.
 
 ## Files
 
@@ -143,6 +161,7 @@ line shows an approximate battery percentage based on the MagTag battery voltage
 | `code.py`               | ✅ CIRCUITPY/    | Main entry point             |
 | `n2yo.py`               | ✅ CIRCUITPY/    | N2YO API client and cache    |
 | `passes.py`             | ✅ CIRCUITPY/    | Pass selection and wake times |
+| `status.py`             | ✅ CIRCUITPY/    | Status page content helpers  |
 | `satellites.py`         | ✅ CIRCUITPY/    | Satellite list               |
 | `settings.toml`         | ✅ CIRCUITPY/    | Credentials — not in git     |
 | `settings.toml.example` | repo only        | Template for settings.toml   |
