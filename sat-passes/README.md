@@ -123,7 +123,8 @@ no manual offset ever needed.
 
 N2YO results are cached in `/n2yo_cache.json` on the device. Fresh results avoid
 API requests, while stale results remain available if a refresh fails or is rate
-limited. Successful refreshes merge new passes with cached passes and discard
+limited. Successful refreshes merge new passes with cached passes, collapse
+overlapping rows per satellite to the most recent pass record, and discard
 entries after the configured post-LOS retention period.
 
 ### 4. Deploy to MagTag

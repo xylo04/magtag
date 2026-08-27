@@ -92,7 +92,7 @@ class N2YOClientTest(unittest.TestCase):
             self.assertEqual(saved["satellites"]["1"]["passes"], passes)
             self.assertEqual(saved["satellites"]["1"]["fetched_at"], 1000)
 
-    def test_active_pass_response_keeps_original_pass(self):
+    def test_active_pass_response_keeps_most_recent_pass(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "cache.json")
             original = {
@@ -111,7 +111,31 @@ class N2YOClientTest(unittest.TestCase):
                 cache_timeout_s=600,
             )
 
-            self.assertEqual(client.get_passes(820, "FO-29"), [original])
+            self.assertEqual(client.get_passes(820, "FO-29"), [{
+                "label": "FO-29", "aos": 711, "los": 730, "max_el": 35,
+            }])
+
+    def test_overlapping_passes_keep_newest_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "cache.json")
+            self.write_cache(path, {
+                "25544": {"fetched_at": 1, "passes": [{
+                    "label": "ISS", "aos": 1700, "los": 2325, "max_el": 70,
+                }]},
+            })
+            response = FakeResponse({"passes": [{
+                "startUTC": 1700, "endUTC": 2410, "maxEl": 72,
+            }]})
+            client = N2YOClient(
+                FakeNetwork([response]),
+                lambda: 1600,
+                path,
+                cache_timeout_s=600,
+            )
+
+            self.assertEqual(client.get_passes(25544, "ISS"), [{
+                "label": "ISS", "aos": 1700, "los": 2410, "max_el": 72,
+            }])
 
     def test_rate_limit_uses_stale_cache_and_stops_requests(self):
         with tempfile.TemporaryDirectory() as directory:
