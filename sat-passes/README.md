@@ -30,9 +30,12 @@ Rows are styled by pass state:
 
 ### Status page
 
-Pressing any of the four buttons wakes the MagTag and replaces the pass list
-with a status page for `STATUS_PAGE_DURATION_S` seconds (default 15), then the
-pass list returns:
+Pressing any of the four buttons wakes the MagTag and immediately shows a
+"Waking up..." message, before the battery is even read, so a button press
+gets instant feedback rather than a blank screen while things get set up. A
+timer wake skips this — it's meant to run unattended, with nobody watching the
+display. The pass list is then replaced with a status page for
+`STATUS_PAGE_DURATION_S` seconds (default 15), then the pass list returns:
 
 ```
 Updated 14:05
