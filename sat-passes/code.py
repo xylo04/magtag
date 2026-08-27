@@ -21,6 +21,7 @@ import displayio
 import supervisor
 import terminalio
 import vectorio
+from adafruit_display_text import label
 from adafruit_magtag.magtag import MagTag
 from n2yo import N2YOClient
 from passes import ACTIVE, RECENT, next_wake_s, select_passes
@@ -313,6 +314,38 @@ def render_charge_me(magtag):
     magtag.refresh()
 
 
+def render_waking_up(magtag):
+    """
+    Show a quick "Waking up" message right after a button press.
+
+    Battery reads, layout setup, and the status page's own data all take a
+    moment to assemble, so this goes up first (button wakes only, never a
+    timer wake) to make the response feel immediate; it is removed again
+    before the next refresh draws the real content.
+    """
+    print("Rendering waking up page")
+    text_area = label.Label(
+        terminalio.FONT,
+        text="Waking up...",
+        color=0x000000,
+        scale=2,
+        anchor_point=(0.5, 0.5),
+        anchored_position=(
+            magtag.graphics.display.width // 2,
+            magtag.graphics.display.height // 2,
+        ),
+    )
+    magtag.graphics.root_group.append(text_area)
+    magtag.refresh()
+    return text_area
+
+
+def remove_waking_up(magtag, waking_label):
+    """Remove the transient "Waking up" label before the next refresh."""
+    if waking_label is not None:
+        magtag.graphics.root_group.remove(waking_label)
+
+
 def render_status(magtag, highlights, lines):
     """Draw the "last updated and battery state" page on its own."""
     print(f"Rendering status page: {lines}")
@@ -359,12 +392,17 @@ def main():
     button_wake = woke_from_button()
     print(f"Boot: button_wake={button_wake}")
 
+    # A timer wake is expected to run unattended, so only a button press (a
+    # person waiting on the display) gets the instant "Waking up" feedback.
+    waking_label = render_waking_up(magtag) if button_wake else None
+
     # ── Low battery ───────────────────────────────────────────────────────────
     # Checked before anything else: no APIs are queried and no pass data is
     # drawn until the battery is charged again.
     battery_pct = read_battery_percent(magtag)
     if is_low_battery(battery_pct, usb_power_connected(), LOW_BATTERY_PCT):
         print(f"Low battery ({battery_pct}% <= {LOW_BATTERY_PCT}%), charge me mode")
+        remove_waking_up(magtag, waking_label)
         render_charge_me(magtag)
         deep_sleep(magtag, LOW_BATTERY_SLEEP_S)
 
@@ -420,6 +458,7 @@ def main():
         shown_lines = build_status_lines(
             n2yo.last_fetch_at, load_utc_offset(), battery_pct
         )
+        remove_waking_up(magtag, waking_label)
         render_status(magtag, highlights, shown_lines)
         status_expiry = time.monotonic() + STATUS_PAGE_DURATION_S
 
