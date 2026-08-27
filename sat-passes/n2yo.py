@@ -89,16 +89,36 @@ class N2YOClient:
             print(f"  cache write failed: {e}")
 
     def _merge(self, cached, fetched, cur):
-        merged = {}
-        for pass_info in cached + fetched:
+        merged = []
+        for recency, pass_info in enumerate(cached + fetched):
             try:
                 if pass_info["los"] + self.los_retention_s >= cur:
-                    key = pass_info["los"]
-                    if key not in merged or pass_info["aos"] <= merged[key]["aos"]:
-                        merged[key] = pass_info
+                    is_fetched = recency >= len(cached)
+                    replacement = {"pass": pass_info, "is_fetched": is_fetched, "recency": recency}
+                    overlaps = [
+                        i for i, existing in enumerate(merged)
+                        if pass_info["aos"] < existing["pass"]["los"]
+                        and existing["pass"]["aos"] < pass_info["los"]
+                    ]
+                    for i in reversed(overlaps):
+                        existing = merged[i]
+                        if (
+                            replacement["is_fetched"] > existing["is_fetched"]
+                            or (
+                                replacement["is_fetched"] == existing["is_fetched"]
+                                and replacement["recency"] > existing["recency"]
+                            )
+                        ):
+                            merged.pop(i)
+                        else:
+                            replacement = None
+                            break
+                    if replacement is not None:
+                        merged.append(replacement)
             except (KeyError, TypeError):
                 print("  ignoring invalid cached pass")
-        return list(merged.values())
+        merged.sort(key=lambda item: item["pass"]["aos"])
+        return [item["pass"] for item in merged]
 
     def _fetch(self, norad_id, label):
         self.last_request_made = True
