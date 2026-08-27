@@ -100,19 +100,20 @@ class N2YOClient:
                         if pass_info["aos"] < existing["pass"]["los"]
                         and existing["pass"]["aos"] < pass_info["los"]
                     ]
-                    for i in reversed(overlaps):
+                    for i in overlaps:
                         existing = merged[i]
                         if (
-                            replacement["is_fetched"] > existing["is_fetched"]
+                            replacement["is_fetched"] < existing["is_fetched"]
                             or (
                                 replacement["is_fetched"] == existing["is_fetched"]
-                                and replacement["recency"] > existing["recency"]
+                                and replacement["recency"] <= existing["recency"]
                             )
                         ):
-                            merged.pop(i)
-                        else:
                             replacement = None
                             break
+                    if replacement is not None:
+                        for i in reversed(overlaps):
+                            merged.pop(i)
                     if replacement is not None:
                         merged.append(replacement)
             except (KeyError, TypeError):
